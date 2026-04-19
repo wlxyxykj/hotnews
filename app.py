@@ -1,4 +1,4 @@
-﻿"""
+"""
 热点聚合工具 - Flask 后端
 抓取: 腾讯新闻 / 百度热搜 / 微博热搜 / 知乎热搜 / B站热搜 / 人民网 / 新华网
 """
@@ -53,6 +53,8 @@ def fetch_tencent():
         url = "https://i.news.qq.com/gw/event/hot_ranking_list?offset=0&count=20&strategy=1"
         headers = {**HEADERS, "Referer": "https://news.qq.com/", "Origin": "https://news.qq.com"}
         resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code != 200 or not resp.text or not resp.text.strip():
+            return fallback_tencent()
         data = resp.json()
         news_list = (
             data.get("idlist", [{}])[0].get("newslist", [])
@@ -98,6 +100,9 @@ def fetch_baidu():
         # 尝试 PC 端 JSON 接口
         url = "https://top.baidu.com/api.php?spm=sdmp.homepage.0.0&query=热搜榜&update=1&format=json&nofetch=0"
         resp = requests.get(url, headers={**HEADERS, "Referer": "https://top.baidu.com/"}, timeout=5)
+        # 增强容错：检查响应状态和内容
+        if resp.status_code != 200 or not resp.text or not resp.text.strip():
+            return fallback_baidu()
         data = resp.json()
         items = data.get("data", {}).get("result", [])
         result = []
@@ -142,6 +147,8 @@ def fetch_weibo():
         # 微博热搜榜 API
         url = "https://weibo.com/ajax/side/hotSearch"
         resp = requests.get(url, headers=HEADERS, timeout=5)
+        if resp.status_code != 200 or not resp.text or not resp.text.strip():
+            return fallback_weibo()
         data = resp.json()
         items = data.get("data", {}).get("realtime", []) or data.get("data", {}).get("hotgov", {}).get("words", [])
         result = []
@@ -194,6 +201,8 @@ def fetch_zhihu():
             "X-API-VERSION": "3.0.91",
         }
         resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code != 200 or not resp.text or not resp.text.strip():
+            return fallback_zhihu()
         data = resp.json()
         items = data.get("data", [])
         result = []
@@ -242,6 +251,8 @@ def fetch_bilibili():
         url = "https://api.bilibili.com/x/web-interface/ranking/v2"
         headers = {**HEADERS, "Referer": "https://www.bilibili.com/"}
         resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code != 200 or not resp.text or not resp.text.strip():
+            return fallback_bilibili()
         data = resp.json()
         items = data.get("data", {}).get("list", [])
         result = []
@@ -292,6 +303,8 @@ def fetch_people():
         url = "https://www.people.com.cn/"
         headers = {**HEADERS, "Referer": "https://www.people.com.cn/"}
         resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code != 200 or not resp.text or not resp.text.strip():
+            return fallback_people()
         resp.encoding = "utf-8"
         soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -357,6 +370,8 @@ def fetch_xinhua():
         url = "https://www.news.cn/rss/politics.xml"
         headers = {**HEADERS, "Referer": "https://www.news.cn/"}
         resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code != 200 or not resp.text or not resp.text.strip():
+            return fallback_xinhua()
         resp.encoding = "utf-8"
         soup = BeautifulSoup(resp.text, "xml")
         items = soup.find_all("item")[:15]
