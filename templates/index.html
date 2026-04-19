@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>热点聚合</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0e1a;
+      --surface: #111827;
+      --surface2: #1a2235;
+      --border: #1e2d45;
+      --text: #e2e8f0;
+      --text-muted: #64748b;
+      --gold: #f0b429;
+      --silver: #94a3b8;
+      --bronze: #cd7f32;
+      --tencent: #07c160;
+      --baidu: #4facfe;
+      --weibo: #ff7e5f;
+      --zhihu: #0084ff;
+      --bilibili: #fb7299;
+      --people: #dc2626;
+      --xinhua: #b91c1c;
+    }
+
+    html { font-size: 15px; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      min-height: 100vh;
+      padding-bottom: 3rem;
+      background-image:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(59,130,246,.08) 0%, transparent 60%);
+    }
+
+    /* ── Header ── */
+    header {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(10,14,26,.88);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    .header-inner {
+      max-width: 1300px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 60px; gap: 1rem; padding: 0 1.5rem;
+    }
+    .logo {
+      display: flex; align-items: center; gap: .5rem;
+      font-size: 1.1rem; font-weight: 700; white-space: nowrap; letter-spacing: .04em;
+    }
+    .logo-icon { font-size: 1.3rem; }
+
+    /* ── Tab Nav ── */
+    .tab-nav {
+      display: flex; align-items: center; gap: .3rem;
+      overflow-x: auto; scrollbar-width: none; flex: 1;
+    }
+    .tab-nav::-webkit-scrollbar { display: none; }
+
+    .tab-btn {
+      display: flex; align-items: center; gap: .35rem;
+      padding: .36rem .8rem; border-radius: 999px;
+      border: 1px solid transparent;
+      background: transparent; color: var(--text-muted);
+      font-size: .8rem; font-weight: 500; cursor: pointer;
+      white-space: nowrap; transition: all .18s; letter-spacing: .03em;
+    }
+    .tab-btn:hover { background: var(--surface2); color: var(--text); }
+    .tab-btn.active { background: var(--surface2); color: var(--text); }
+    .tab-btn[data-id="tencent"].active  { border-color: var(--tencent); color: var(--tencent); }
+    .tab-btn[data-id="baidu"].active    { border-color: var(--baidu); color: var(--baidu); }
+    .tab-btn[data-id="weibo"].active    { border-color: var(--weibo); color: var(--weibo); }
+    .tab-btn[data-id="zhihu"].active    { border-color: var(--zhihu); color: var(--zhihu); }
+    .tab-btn[data-id="bilibili"].active { border-color: var(--bilibili); color: var(--bilibili); }
+    .tab-btn[data-id="people"].active   { border-color: var(--people); color: var(--people); }
+    .tab-btn[data-id="xinhua"].active   { border-color: var(--xinhua); color: var(--xinhua); }
+
+    /* ── Refresh btn ── */
+    .refresh-btn {
+      display: flex; align-items: center; gap: .4rem;
+      padding: .4rem 1rem; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--surface2);
+      color: var(--text); font-size: .82rem; cursor: pointer;
+      transition: all .18s; white-space: nowrap;
+    }
+    .refresh-btn:hover { border-color: #60a5fa; color: #60a5fa; }
+    .refresh-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .spin { display: inline-block; }
+    .spin.spinning { animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Main ── */
+    main { max-width: 1300px; margin: 1.5rem auto 0; padding: 0 1.5rem; }
+
+    .update-bar {
+      display: flex; align-items: center; justify-content: flex-end;
+      gap: .5rem; margin-bottom: .8rem;
+      font-size: .73rem; color: var(--text-muted);
+    }
+
+    /* ── Panels ── */
+    .panel { display: none; }
+    .panel.active { display: block; animation: fadeIn .25s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    .all-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.2rem;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; overflow: hidden;
+      transition: border-color .2s, transform .2s;
+    }
+    .card:hover { border-color: #60a5fa33; transform: translateY(-2px); }
+
+    .card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: .85rem 1.1rem .7rem;
+      border-bottom: 1px solid var(--border);
+      position: relative; overflow: hidden;
+    }
+    .card-head::before {
+      content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: var(--accent);
+    }
+    .card-head.tencent  .card-head::before { background: var(--tencent); }
+    .card-head.baidu    .card-head::before { background: var(--baidu); }
+    .card-head.weibo    .card-head::before { background: var(--weibo); }
+    .card-head.zhihu    .card-head::before { background: var(--zhihu); }
+    .card-head.bilibili .card-head::before { background: var(--bilibili); }
+    .card-head.people   .card-head::before { background: var(--people); }
+    .card-head.xinhua   .card-head::before { background: var(--xinhua); }
+
+    .card-title {
+      display: flex; align-items: center; gap: .5rem;
+      font-size: .92rem; font-weight: 600;
+    }
+    .plat-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .tencent-dot  { background: var(--tencent); box-shadow: 0 0 6px var(--tencent); }
+    .baidu-dot    { background: var(--baidu); box-shadow: 0 0 6px var(--baidu); }
+    .weibo-dot    { background: var(--weibo); box-shadow: 0 0 6px var(--weibo); }
+    .zhihu-dot    { background: var(--zhihu); box-shadow: 0 0 6px var(--zhihu); }
+    .bilibili-dot { background: var(--bilibili); box-shadow: 0 0 6px var(--bilibili); }
+    .people-dot   { background: var(--people); box-shadow: 0 0 6px var(--people); }
+    .xinhua-dot   { background: var(--xinhua); box-shadow: 0 0 6px var(--xinhua); }
+
+    .card-link { font-size: .72rem; color: var(--text-muted); text-decoration: none; }
+    .card-link:hover { color: var(--text); }
+
+    /* ── News List ── */
+    .news-list { list-style: none; }
+    .news-item {
+      display: flex; align-items: baseline; gap: .75rem;
+      padding: .58rem 1.1rem; border-bottom: 1px solid var(--border);
+      transition: background .15s;
+    }
+    .news-item:last-child { border-bottom: none; }
+    .news-item:hover { background: var(--surface2); }
+
+    .rank { min-width: 22px; text-align: center; font-size: .78rem; font-weight: 700; color: var(--text-muted); flex-shrink: 0; }
+    .rank.r1 { color: var(--gold); }
+    .rank.r2 { color: var(--silver); }
+    .rank.r3 { color: var(--bronze); }
+
+    .news-title {
+      flex: 1; font-size: .87rem; line-height: 1.55;
+      color: var(--text); text-decoration: none; word-break: break-all;
+      transition: color .15s;
+    }
+    .news-title:hover { color: #60a5fa; text-decoration: underline; }
+
+    .hot-tag { font-size: .7rem; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+    .hot-tag.hot1 { color: var(--gold); }
+    .hot-tag.hot2 { color: var(--silver); }
+    .hot-tag.hot3 { color: var(--bronze); }
+
+    /* ── Full card ── */
+    .full-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .full-card .card-head { padding: 1rem 1.4rem .9rem; }
+    .full-card .news-item { padding: .65rem 1.4rem; }
+
+    /* ── Status ── */
+    .status-row {
+      display: flex; align-items: center; justify-content: center; gap: .6rem;
+      padding: 2rem 1rem; color: var(--text-muted); font-size: .88rem;
+    }
+    .spinner {
+      width: 18px; height: 18px; border: 2px solid var(--border);
+      border-top-color: #60a5fa; border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    .error-row { padding: 1.5rem 1.1rem; text-align: center; color: #f87171; font-size: .85rem; }
+
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      header { padding: 0 1rem; }
+      main { padding: 0 .8rem; margin-top: 1rem; }
+      .logo span { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="header-inner">
+    <div class="logo">
+      <span class="logo-icon">🔥</span>
+      <span>热点聚合</span>
+    </div>
+    <nav class="tab-nav" id="tabNav">
+      <button class="tab-btn active" data-id="all">全部</button>
+      <button class="tab-btn" data-id="tencent">腾讯新闻</button>
+      <button class="tab-btn" data-id="baidu">百度热搜</button>
+      <button class="tab-btn" data-id="weibo">微博热搜</button>
+      <button class="tab-btn" data-id="zhihu">知乎热搜</button>
+      <button class="tab-btn" data-id="bilibili">B站热搜</button>
+      <button class="tab-btn" data-id="people">人民网</button>
+      <button class="tab-btn" data-id="xinhua">新华网</button>
+    </nav>
+    <button class="refresh-btn" id="refreshBtn" onclick="refreshAll()">
+      <span class="spin" id="spinIcon">↻</span>刷新
+    </button>
+  </div>
+</header>
+
+<!-- Main -->
+<main>
+  <div class="update-bar" id="updateBar">
+    <span id="updateTime">正在加载...</span>
+  </div>
+
+  <div class="panel active" id="panel-all">
+    <div class="all-grid" id="allGrid"></div>
+  </div>
+
+  <div class="panel" id="panel-tencent"><div class="full-card" id="full-tencent"></div></div>
+  <div class="panel" id="panel-baidu"><div class="full-card" id="full-baidu"></div></div>
+  <div class="panel" id="panel-weibo"><div class="full-card" id="full-weibo"></div></div>
+  <div class="panel" id="panel-zhihu"><div class="full-card" id="full-zhihu"></div></div>
+  <div class="panel" id="panel-bilibili"><div class="full-card" id="full-bilibili"></div></div>
+  <div class="panel" id="panel-people"><div class="full-card" id="full-people"></div></div>
+  <div class="panel" id="panel-xinhua"><div class="full-card" id="full-xinhua"></div></div>
+</main>
+
+<script>
+// ── 平台配置 ──────────────────────────────────────
+const PLATFORMS = [
+  { id:"tencent",  label:"腾讯新闻", dot:"tencent-dot",  home:"https://news.qq.com/" },
+  { id:"baidu",    label:"百度热搜", dot:"baidu-dot",    home:"https://top.baidu.com/board?tab=realtime" },
+  { id:"weibo",    label:"微博热搜", dot:"weibo-dot",    home:"https://s.weibo.com/top/summary" },
+  { id:"zhihu",    label:"知乎热搜", dot:"zhihu-dot",    home:"https://www.zhihu.com/" },
+  { id:"bilibili", label:"B站热搜",  dot:"bilibili-dot", home:"https://www.bilibili.com/" },
+  { id:"people",   label:"人民网",   dot:"people-dot",   home:"https://www.people.com.cn/" },
+  { id:"xinhua",   label:"新华网",   dot:"xinhua-dot",   home:"https://www.news.cn/" },
+];
+
+let newsData = {};
+let loading = false;
+
+// ── Tab 切换 ──────────────────────────────────────
+document.getElementById("tabNav").addEventListener("click", e => {
+  const btn = e.target.closest(".tab-btn");
+  if (!btn) return;
+  const id = btn.dataset.id;
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+  document.getElementById("panel-" + id).classList.add("active");
+});
+
+// ── 工具 ──────────────────────────────────────────
+function rankClass(n) {
+  if (n === 1) return "rank r1";
+  if (n === 2) return "rank r2";
+  if (n === 3) return "rank r3";
+  return "rank";
+}
+function hotTagClass(hot) {
+  if (hot === "沸" || hot === "爆") return "hot-tag hot1";
+  if (hot === "热") return "hot-tag hot2";
+  return "hot-tag";
+}
+function escHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+          .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+function renderList(items, max = 999) {
+  if (!items || items.length === 0) {
+    return `<div class="error-row">暂无数据，已显示内置内容</div>`;
+  }
+  return items.slice(0, max).map(item => `
+    <li class="news-item">
+      <span class="${rankClass(item.rank)}">${item.rank}</span>
+      <a class="news-title" href="${escHtml(item.url)}" target="_blank" rel="noopener">
+        ${escHtml(item.title)}
+      </a>
+      ${item.hot ? `<span class="${hotTagClass(item.hot)}">${escHtml(item.hot)}</span>` : ""}
+    </li>`).join("");
+}
+function renderCard(p, items, preview = true) {
+  const max = preview ? 10 : 30;
+  return `
+    <div class="card-head ${p.id}">
+      <span class="card-title">
+        <span class="plat-dot ${p.dot}"></span>${p.label}
+      </span>
+      <a class="card-link" href="${p.home}" target="_blank" rel="noopener">官网 ↗</a>
+    </div>
+    ${renderList(items, max)}`;
+}
+
+// ── 渲染 ──────────────────────────────────────────
+function renderAll() {
+  const grid = document.getElementById("allGrid");
+  grid.innerHTML = PLATFORMS.map(p => {
+    const items = newsData[p.id] || [];
+    return `<div class="card">${renderCard(p, items, true)}</div>`;
+  }).join("");
+}
+function renderFull(pid) {
+  const p = PLATFORMS.find(x => x.id === pid);
+  if (!p) return;
+  const items = newsData[pid] || [];
+  document.getElementById("full-" + pid).innerHTML = renderCard(p, items, false);
+}
+
+// ── 加载中 ────────────────────────────────────────
+function setAllLoading() {
+  const loadingHTML = `
+    <div class="card-head">
+      <span class="card-title"><span class="plat-dot"></span>加载中...</span>
+    </div>
+    <div class="status-row"><div class="spinner"></div>正在抓取热点...</div>`;
+  const grid = document.getElementById("allGrid");
+  grid.innerHTML = PLATFORMS.map(() => `<div class="card">${loadingHTML}</div>`).join("");
+  PLATFORMS.forEach(p => {
+    const el = document.getElementById("full-" + p.id);
+    if (el) el.innerHTML = loadingHTML;
+  });
+}
+
+// ── 刷新 ──────────────────────────────────────────
+async function refreshAll() {
+  if (loading) return;
+  loading = true;
+  const btn = document.getElementById("refreshBtn");
+  const spinEl = document.getElementById("spinIcon");
+  btn.disabled = true;
+  spinEl.classList.add("spinning");
+  document.getElementById("updateTime").textContent = "正在刷新...";
+  setAllLoading();
+  try {
+    const resp = await fetch("/api/news/all");
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    newsData = await resp.json();
+  } catch (err) {
+    console.error("获取数据失败:", err);
+    document.getElementById("updateTime").textContent = "⚠ 网络请求失败，显示本地内容";
+  } finally {
+    renderAll();
+    PLATFORMS.forEach(p => renderFull(p.id));
+    const now = new Date();
+    document.getElementById("updateTime").textContent = `最近更新：${now.toLocaleTimeString("zh-CN",{hour12:false})}`;
+    loading = false;
+    btn.disabled = false;
+    spinEl.classList.remove("spinning");
+  }
+}
+
+// 自动刷新（5分钟）
+setInterval(refreshAll, 5 * 60 * 1000);
+
+// 初始加载
+refreshAll();
+</script>
+</body>
+</html>

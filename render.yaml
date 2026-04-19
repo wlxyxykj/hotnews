@@ -1,0 +1,19 @@
+# Render 部署配置 - 热点聚合工具
+# 使用方法：上传到 GitHub → Render 导入 → 自动部署
+
+services:
+  - type: web
+    name: hotnews
+    runtime: python
+    region: Hong Kong  # 香港节点，国内访问快
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: PORT
+        value: "10000"
+      - key: CACHE_TTL
+        value: "60"
