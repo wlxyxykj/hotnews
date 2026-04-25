@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>热点聚合</title>
+  <title>热点聚合 · 实时榜单</title>
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -11,378 +11,1000 @@
       --bg: #0a0e1a;
       --surface: #111827;
       --surface2: #1a2235;
+      --surface3: #222d42;
       --border: #1e2d45;
       --text: #e2e8f0;
       --text-muted: #64748b;
+      --text-sub: #94a3b8;
       --gold: #f0b429;
       --silver: #94a3b8;
       --bronze: #cd7f32;
-      --tencent: #07c160;
-      --baidu: #4facfe;
-      --weibo: #ff7e5f;
-      --zhihu: #0084ff;
+      --accent: #3b82f6;
+      --green: #10b981;
+      --red: #ef4444;
+      --orange: #f59e0b;
+      /* 平台颜色 */
+      --weibo:    #ff7e5f;
+      --tencent:  #07c160;
+      --toutiao:  #e63946;
+      --wangyi:   #cc0000;
+      --sina:     #ff8800;
+      --rmrb:     #dc2626;
+      --cctv:     #1d4ed8;
+      --xinhua:   #b91c1c;
+      --pengpai:  #1e40af;
+      --zhihu:    #0084ff;
       --bilibili: #fb7299;
-      --people: #dc2626;
-      --xinhua: #b91c1c;
+      --c36kr:    #21a179;
+      --huxiu:    #e63000;
+      --ifanr:    #6366f1;
+      --sspai:    #d97706;
+      --ithome:   #0ea5e9;
+      --github:   #6e7681;
+      --douban:   #007722;
+      --maoyan:   #ff3f3f;
+      --weibo_ent: #ff5c8d;
+      --sina_ent:  #f97316;
+      --ifeng_ent: #8b5cf6;
+      --caixin:   #b45309;
+      --yicai:    #1e3a8a;
+      --jiemian:  #0f766e;
+      --wallstreet: #2563eb;
+      --xueqiu:   #06b6d4;
+      --guancha:  #dc2626;
+      --huanqiu:  #7c3aed;
+      --cankaoxiaoxi: #be185d;
+      --hupu:     #e11d48;
+      --dongqiudi: #16a34a;
+      --cctv_sports: #1d4ed8;
     }
 
-    html { font-size: 15px; }
+    html { font-size: 15px; scroll-behavior: smooth; }
     body {
       background: var(--bg);
       color: var(--text);
       font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
       min-height: 100vh;
-      padding-bottom: 3rem;
-      background-image:
-        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(59,130,246,.08) 0%, transparent 60%);
+      background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(59,130,246,.07) 0%, transparent 60%);
     }
 
-    /* ── Header ── */
+    /* ════ HEADER ═══════════════════════════════════════════ */
     header {
-      position: sticky; top: 0; z-index: 100;
-      background: rgba(10,14,26,.88);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+      position: sticky; top: 0; z-index: 200;
+      background: rgba(10,14,26,.92);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
       border-bottom: 1px solid var(--border);
     }
     .header-inner {
-      max-width: 1300px; margin: 0 auto;
-      display: flex; align-items: center; justify-content: space-between;
-      height: 60px; gap: 1rem; padding: 0 1.5rem;
+      max-width: 1440px; margin: 0 auto;
+      display: flex; align-items: center; gap: 1rem;
+      height: 56px; padding: 0 1.5rem;
     }
     .logo {
-      display: flex; align-items: center; gap: .5rem;
-      font-size: 1.1rem; font-weight: 700; white-space: nowrap; letter-spacing: .04em;
+      display: flex; align-items: center; gap: .45rem;
+      font-size: 1.05rem; font-weight: 700; letter-spacing: .03em;
+      white-space: nowrap; flex-shrink: 0;
     }
-    .logo-icon { font-size: 1.3rem; }
+    .logo-icon { font-size: 1.25rem; }
 
-    /* ── Tab Nav ── */
-    .tab-nav {
-      display: flex; align-items: center; gap: .3rem;
+    /* ════ 分类 NAV ══════════════════════════════════════════ */
+    .cat-nav {
+      display: flex; align-items: center; gap: .25rem;
       overflow-x: auto; scrollbar-width: none; flex: 1;
     }
-    .tab-nav::-webkit-scrollbar { display: none; }
-
-    .tab-btn {
-      display: flex; align-items: center; gap: .35rem;
-      padding: .36rem .8rem; border-radius: 999px;
+    .cat-nav::-webkit-scrollbar { display: none; }
+    .cat-btn {
+      display: flex; align-items: center; gap: .3rem;
+      padding: .3rem .75rem; border-radius: 999px;
       border: 1px solid transparent;
       background: transparent; color: var(--text-muted);
-      font-size: .8rem; font-weight: 500; cursor: pointer;
-      white-space: nowrap; transition: all .18s; letter-spacing: .03em;
+      font-size: .78rem; font-weight: 500; cursor: pointer;
+      white-space: nowrap; transition: all .16s;
     }
-    .tab-btn:hover { background: var(--surface2); color: var(--text); }
-    .tab-btn.active { background: var(--surface2); color: var(--text); }
-    .tab-btn[data-id="tencent"].active  { border-color: var(--tencent); color: var(--tencent); }
-    .tab-btn[data-id="baidu"].active    { border-color: var(--baidu); color: var(--baidu); }
-    .tab-btn[data-id="weibo"].active    { border-color: var(--weibo); color: var(--weibo); }
-    .tab-btn[data-id="zhihu"].active    { border-color: var(--zhihu); color: var(--zhihu); }
-    .tab-btn[data-id="bilibili"].active { border-color: var(--bilibili); color: var(--bilibili); }
-    .tab-btn[data-id="people"].active   { border-color: var(--people); color: var(--people); }
-    .tab-btn[data-id="xinhua"].active   { border-color: var(--xinhua); color: var(--xinhua); }
+    .cat-btn:hover { background: var(--surface2); color: var(--text); }
+    .cat-btn.active {
+      background: var(--surface2); color: var(--text);
+      border-color: var(--accent); color: #93c5fd;
+    }
 
-    /* ── Refresh btn ── */
-    .refresh-btn {
-      display: flex; align-items: center; gap: .4rem;
-      padding: .4rem 1rem; border-radius: 8px;
+    /* ════ 右侧工具栏 ════════════════════════════════════════ */
+    .header-tools { display: flex; align-items: center; gap: .5rem; flex-shrink: 0; }
+
+    .icon-btn {
+      display: flex; align-items: center; gap: .3rem;
+      padding: .3rem .65rem; border-radius: 7px;
       border: 1px solid var(--border); background: var(--surface2);
-      color: var(--text); font-size: .82rem; cursor: pointer;
-      transition: all .18s; white-space: nowrap;
+      color: var(--text-muted); font-size: .78rem; cursor: pointer;
+      transition: all .16s; white-space: nowrap;
     }
-    .refresh-btn:hover { border-color: #60a5fa; color: #60a5fa; }
-    .refresh-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .icon-btn:hover { border-color: #60a5fa; color: var(--text); }
+    .icon-btn.danger:hover { border-color: var(--red); color: var(--red); }
+    .icon-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .icon-btn.primary:hover { background: #2563eb; }
+    .icon-btn:disabled { opacity:.45; cursor:not-allowed; }
     .spin { display: inline-block; }
     .spin.spinning { animation: spin .7s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ── Main ── */
-    main { max-width: 1300px; margin: 1.5rem auto 0; padding: 0 1.5rem; }
-
-    .update-bar {
-      display: flex; align-items: center; justify-content: flex-end;
-      gap: .5rem; margin-bottom: .8rem;
-      font-size: .73rem; color: var(--text-muted);
+    /* ════ MODAL ═════════════════════════════════════════════ */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; z-index: 500;
+      background: rgba(0,0,0,.6); backdrop-filter: blur(4px);
+      align-items: center; justify-content: center;
     }
-
-    /* ── Panels ── */
-    .panel { display: none; }
-    .panel.active { display: block; animation: fadeIn .25s ease; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-
-    .all-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 1.2rem;
-    }
-
-    /* ── Card ── */
-    .card {
+    .modal-overlay.open { display: flex; animation: fadeIn .2s; }
+    .modal {
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 14px; overflow: hidden;
-      transition: border-color .2s, transform .2s;
+      border-radius: 16px; width: 380px; max-width: calc(100vw - 2rem);
+      padding: 1.6rem; box-shadow: 0 20px 60px rgba(0,0,0,.5);
     }
-    .card:hover { border-color: #60a5fa33; transform: translateY(-2px); }
+    .modal h3 { font-size: 1.05rem; margin-bottom: 1.1rem; }
+    .modal-tabs { display: flex; gap: .5rem; margin-bottom: 1rem; }
+    .modal-tab {
+      flex: 1; padding: .45rem; border-radius: 8px;
+      border: 1px solid var(--border); background: transparent;
+      color: var(--text-muted); font-size: .82rem; cursor: pointer; transition: all .15s;
+    }
+    .modal-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .modal input {
+      width: 100%; padding: .55rem .75rem; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--surface2);
+      color: var(--text); font-size: .88rem; margin-bottom: .65rem;
+      outline: none; transition: border-color .15s;
+    }
+    .modal input:focus { border-color: var(--accent); }
+    .modal-footer { display: flex; gap: .5rem; margin-top: .8rem; justify-content: flex-end; }
+    .modal-err { color: var(--red); font-size: .78rem; margin: -.3rem 0 .5rem; min-height: 1em; }
+
+    /* ════ USER MENU ═════════════════════════════════════════ */
+    .user-menu-wrap { position: relative; }
+    .user-dropdown {
+      display: none; position: absolute; top: calc(100% + 8px); right: 0;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; min-width: 160px; padding: .4rem 0;
+      box-shadow: 0 12px 40px rgba(0,0,0,.4); z-index: 300;
+    }
+    .user-dropdown.open { display: block; animation: fadeIn .15s; }
+    .user-dropdown a, .user-dropdown button {
+      display: block; width: 100%; text-align: left;
+      padding: .5rem 1rem; font-size: .82rem; color: var(--text);
+      background: none; border: none; cursor: pointer;
+      text-decoration: none; transition: background .12s;
+    }
+    .user-dropdown a:hover, .user-dropdown button:hover { background: var(--surface2); }
+    .user-dropdown .sep { border-top: 1px solid var(--border); margin: .3rem 0; }
+
+    /* ════ MAIN ══════════════════════════════════════════════ */
+    main { max-width: 1440px; margin: 0 auto; padding: 1.2rem 1.5rem 4rem; }
+
+    .status-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 1rem; flex-wrap: wrap; gap: .4rem;
+    }
+    .status-bar-left { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+    .status-bar-right { font-size: .72rem; color: var(--text-muted); }
+
+    /* 平台筛选 tabs（在综合视图内） */
+    .plat-tabs {
+      display: flex; align-items: center; gap: .25rem;
+      flex-wrap: wrap; margin-bottom: 1rem;
+    }
+    .plat-tab {
+      padding: .24rem .6rem; border-radius: 999px;
+      border: 1px solid var(--border);
+      background: transparent; color: var(--text-muted);
+      font-size: .74rem; cursor: pointer; transition: all .14s;
+    }
+    .plat-tab:hover { background: var(--surface2); color: var(--text); }
+    .plat-tab.active { color: #fff; border-color: transparent; }
+
+    /* ════ 网格布局 ══════════════════════════════════════════ */
+    .news-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+      gap: 1.1rem;
+    }
+
+    /* ════ 单个平台 CARD ══════════════════════════════════════ */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 13px; overflow: hidden;
+      transition: border-color .2s, transform .2s;
+      display: flex; flex-direction: column;
+    }
+    .card:hover { border-color: rgba(96,165,250,.25); transform: translateY(-2px); }
 
     .card-head {
       display: flex; align-items: center; justify-content: space-between;
-      padding: .85rem 1.1rem .7rem;
+      padding: .75rem 1rem .6rem;
       border-bottom: 1px solid var(--border);
-      position: relative; overflow: hidden;
+      position: relative;
     }
-    .card-head::before {
-      content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-      background: var(--accent);
+    .card-head-bar {
+      position: absolute; top: 0; left: 0; right: 0; height: 2.5px;
+      border-radius: 13px 13px 0 0;
     }
-    .card-head.tencent  .card-head::before { background: var(--tencent); }
-    .card-head.baidu    .card-head::before { background: var(--baidu); }
-    .card-head.weibo    .card-head::before { background: var(--weibo); }
-    .card-head.zhihu    .card-head::before { background: var(--zhihu); }
-    .card-head.bilibili .card-head::before { background: var(--bilibili); }
-    .card-head.people   .card-head::before { background: var(--people); }
-    .card-head.xinhua   .card-head::before { background: var(--xinhua); }
-
-    .card-title {
-      display: flex; align-items: center; gap: .5rem;
-      font-size: .92rem; font-weight: 600;
+    .card-title-wrap { display: flex; align-items: center; gap: .45rem; }
+    .plat-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .card-name { font-size: .88rem; font-weight: 600; }
+    .card-head-right { display: flex; align-items: center; gap: .5rem; }
+    .card-link {
+      font-size: .7rem; color: var(--text-muted);
+      text-decoration: none; transition: color .13s;
     }
-    .plat-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .tencent-dot  { background: var(--tencent); box-shadow: 0 0 6px var(--tencent); }
-    .baidu-dot    { background: var(--baidu); box-shadow: 0 0 6px var(--baidu); }
-    .weibo-dot    { background: var(--weibo); box-shadow: 0 0 6px var(--weibo); }
-    .zhihu-dot    { background: var(--zhihu); box-shadow: 0 0 6px var(--zhihu); }
-    .bilibili-dot { background: var(--bilibili); box-shadow: 0 0 6px var(--bilibili); }
-    .people-dot   { background: var(--people); box-shadow: 0 0 6px var(--people); }
-    .xinhua-dot   { background: var(--xinhua); box-shadow: 0 0 6px var(--xinhua); }
-
-    .card-link { font-size: .72rem; color: var(--text-muted); text-decoration: none; }
     .card-link:hover { color: var(--text); }
+    .update-badge {
+      font-size: .66rem; padding: .14rem .44rem; border-radius: 999px;
+      border: 1px solid; white-space: nowrap;
+    }
+    .update-badge.realtime { border-color: rgba(16,185,129,.4); color: #10b981; background: rgba(16,185,129,.08); }
+    .update-badge.nonrt    { border-color: rgba(100,116,139,.3); color: var(--text-muted); background: transparent; }
 
-    /* ── News List ── */
-    .news-list { list-style: none; }
+    /* ════ 新闻列表 ══════════════════════════════════════════ */
+    .news-list { list-style: none; flex: 1; }
     .news-item {
-      display: flex; align-items: baseline; gap: .75rem;
-      padding: .58rem 1.1rem; border-bottom: 1px solid var(--border);
-      transition: background .15s;
+      display: flex; align-items: baseline; gap: .6rem;
+      padding: .5rem 1rem;
+      border-bottom: 1px solid rgba(30,45,69,.6);
+      transition: background .13s;
     }
     .news-item:last-child { border-bottom: none; }
     .news-item:hover { background: var(--surface2); }
 
-    .rank { min-width: 22px; text-align: center; font-size: .78rem; font-weight: 700; color: var(--text-muted); flex-shrink: 0; }
+    .rank { min-width: 20px; text-align: center; font-size: .75rem; font-weight: 700; color: var(--text-muted); flex-shrink: 0; }
     .rank.r1 { color: var(--gold); }
     .rank.r2 { color: var(--silver); }
     .rank.r3 { color: var(--bronze); }
 
-    .news-title {
-      flex: 1; font-size: .87rem; line-height: 1.55;
+    .news-link {
+      flex: 1; font-size: .84rem; line-height: 1.55;
       color: var(--text); text-decoration: none; word-break: break-all;
-      transition: color .15s;
+      transition: color .13s;
     }
-    .news-title:hover { color: #60a5fa; text-decoration: underline; }
+    .news-link:hover { color: #60a5fa; }
 
-    .hot-tag { font-size: .7rem; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+    .item-actions { display: flex; align-items: center; gap: .25rem; flex-shrink: 0; }
+    .fav-btn {
+      background: none; border: none; cursor: pointer;
+      font-size: .85rem; color: var(--text-muted);
+      padding: .1rem .2rem; border-radius: 4px;
+      transition: color .13s; line-height: 1;
+    }
+    .fav-btn:hover { color: var(--gold); }
+    .fav-btn.active { color: var(--gold); }
+
+    .hot-tag { font-size: .68rem; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
     .hot-tag.hot1 { color: var(--gold); }
     .hot-tag.hot2 { color: var(--silver); }
     .hot-tag.hot3 { color: var(--bronze); }
+    .hot-tag.green { color: var(--green); }
 
-    /* ── Full card ── */
-    .full-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
-    .full-card .card-head { padding: 1rem 1.4rem .9rem; }
-    .full-card .news-item { padding: .65rem 1.4rem; }
-
-    /* ── Status ── */
-    .status-row {
-      display: flex; align-items: center; justify-content: center; gap: .6rem;
-      padding: 2rem 1rem; color: var(--text-muted); font-size: .88rem;
+    /* ════ 骨架屏 ════════════════════════════════════════════ */
+    .skeleton { animation: pulse 1.5s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity:.6; } 50% { opacity:.2; } }
+    .skel-line {
+      height: 13px; border-radius: 4px;
+      background: var(--surface3); margin: .6rem 1rem;
     }
-    .spinner {
-      width: 18px; height: 18px; border: 2px solid var(--border);
-      border-top-color: #60a5fa; border-radius: 50%;
-      animation: spin .7s linear infinite;
-    }
-    .error-row { padding: 1.5rem 1.1rem; text-align: center; color: #f87171; font-size: .85rem; }
+    .skel-line.w80 { width: 80%; }
+    .skel-line.w65 { width: 65%; }
+    .skel-line.w72 { width: 72%; }
 
-    /* ── Responsive ── */
+    /* ════ 无数据 ════════════════════════════════════════════ */
+    .empty-row {
+      padding: 1.8rem 1rem; text-align: center;
+      color: var(--text-muted); font-size: .82rem;
+      display: flex; flex-direction: column; align-items: center; gap: .4rem;
+    }
+    .empty-row .emo { font-size: 1.4rem; }
+
+    /* ════ 侧栏（收藏/历史）════════════════════════════════ */
+    .drawer-overlay {
+      display: none; position: fixed; inset: 0; z-index: 400;
+      background: rgba(0,0,0,.5); backdrop-filter: blur(3px);
+    }
+    .drawer-overlay.open { display: block; animation: fadeIn .2s; }
+    .drawer {
+      position: fixed; top: 0; right: -400px; bottom: 0; z-index: 401;
+      width: 360px; max-width: 94vw;
+      background: var(--surface); border-left: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      transition: right .28s cubic-bezier(.4,0,.2,1);
+    }
+    .drawer.open { right: 0; }
+    .drawer-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1rem 1.2rem; border-bottom: 1px solid var(--border);
+    }
+    .drawer-head h3 { font-size: .95rem; }
+    .drawer-close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem; }
+    .drawer-tabs { display: flex; gap: .5rem; padding: .75rem 1rem .5rem; border-bottom: 1px solid var(--border); }
+    .drawer-tab {
+      flex: 1; padding: .38rem; border-radius: 7px;
+      border: 1px solid var(--border); background: transparent;
+      color: var(--text-muted); font-size: .78rem; cursor: pointer; transition: all .14s;
+    }
+    .drawer-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .drawer-body { flex: 1; overflow-y: auto; padding: .5rem 0; }
+    .drawer-item {
+      padding: .55rem 1.2rem; border-bottom: 1px solid rgba(30,45,69,.5);
+      transition: background .12s;
+    }
+    .drawer-item:hover { background: var(--surface2); }
+    .drawer-item a {
+      font-size: .82rem; color: var(--text); text-decoration: none;
+      display: block; line-height: 1.5; word-break: break-all;
+    }
+    .drawer-item a:hover { color: #60a5fa; }
+    .drawer-item .di-meta { font-size: .68rem; color: var(--text-muted); margin-top: .2rem; display: flex; gap: .5rem; align-items: center; }
+    .drawer-item .di-del { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: .75rem; }
+    .drawer-item .di-del:hover { color: var(--red); }
+    .drawer-footer { padding: .75rem 1.2rem; border-top: 1px solid var(--border); }
+    .drawer-empty { padding: 2rem 1rem; text-align: center; color: var(--text-muted); font-size: .82rem; }
+
+    /* ════ 全屏单平台视图 ════════════════════════════════════ */
+    .full-view { display: none; }
+    .full-view.active { display: block; animation: fadeIn .22s; }
+    .full-view .news-item { padding: .58rem 1.4rem; }
+
+    /* ════ Toast ════════════════════════════════════════════ */
+    #toast {
+      position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%);
+      background: var(--surface3); border: 1px solid var(--border);
+      color: var(--text); font-size: .82rem; padding: .55rem 1.2rem;
+      border-radius: 999px; z-index: 600;
+      opacity: 0; transition: opacity .25s; pointer-events: none;
+    }
+    #toast.show { opacity: 1; }
+
+    @keyframes fadeIn { from { opacity:0; transform: translateY(5px); } to { opacity:1; transform:translateY(0); } }
+
     @media (max-width: 640px) {
-      header { padding: 0 1rem; }
-      main { padding: 0 .8rem; margin-top: 1rem; }
+      .header-inner { padding: 0 .8rem; }
+      main { padding: .8rem .8rem 4rem; }
+      .news-grid { grid-template-columns: 1fr; }
       .logo span { display: none; }
     }
   </style>
 </head>
 <body>
 
-<!-- Header -->
+<!-- ════ HEADER ═══════════════════════════════════════════ -->
 <header>
   <div class="header-inner">
     <div class="logo">
       <span class="logo-icon">🔥</span>
       <span>热点聚合</span>
     </div>
-    <nav class="tab-nav" id="tabNav">
-      <button class="tab-btn active" data-id="all">全部</button>
-      <button class="tab-btn" data-id="tencent">腾讯新闻</button>
-      <button class="tab-btn" data-id="baidu">百度热搜</button>
-      <button class="tab-btn" data-id="weibo">微博热搜</button>
-      <button class="tab-btn" data-id="zhihu">知乎热搜</button>
-      <button class="tab-btn" data-id="bilibili">B站热搜</button>
-      <button class="tab-btn" data-id="people">人民网</button>
-      <button class="tab-btn" data-id="xinhua">新华网</button>
+
+    <!-- 分类导航 -->
+    <nav class="cat-nav" id="catNav">
+      <button class="cat-btn active" data-cat="综合">🌐 综合</button>
+      <button class="cat-btn" data-cat="科技">💻 科技</button>
+      <button class="cat-btn" data-cat="娱乐">🎬 娱乐</button>
+      <button class="cat-btn" data-cat="财经">📈 财经</button>
+      <button class="cat-btn" data-cat="军事国际">🌍 军事国际</button>
+      <button class="cat-btn" data-cat="体育">⚽ 体育</button>
     </nav>
-    <button class="refresh-btn" id="refreshBtn" onclick="refreshAll()">
-      <span class="spin" id="spinIcon">↻</span>刷新
-    </button>
+
+    <div class="header-tools">
+      <button class="icon-btn" id="refreshBtn" onclick="refreshCurrent()">
+        <span class="spin" id="spinIcon">↻</span> 刷新
+      </button>
+      <!-- 未登录 -->
+      <button class="icon-btn primary" id="loginBtn" onclick="openAuthModal()">登录</button>
+      <!-- 已登录 -->
+      <div class="user-menu-wrap" id="userMenu" style="display:none">
+        <button class="icon-btn" id="userNameBtn" onclick="toggleUserMenu()">👤 <span id="userNameText"></span> ▾</button>
+        <div class="user-dropdown" id="userDropdown">
+          <a href="#" onclick="openDrawer('fav');return false">⭐ 我的收藏</a>
+          <a href="#" onclick="openDrawer('history');return false">🕒 浏览记录</a>
+          <div class="sep"></div>
+          <button onclick="logout()">退出登录</button>
+        </div>
+      </div>
+    </div>
   </div>
 </header>
 
-<!-- Main -->
+<!-- ════ MAIN ═════════════════════════════════════════════ -->
 <main>
-  <div class="update-bar" id="updateBar">
-    <span id="updateTime">正在加载...</span>
+  <div class="status-bar">
+    <div class="status-bar-left">
+      <!-- 平台 tabs（动态生成） -->
+      <div class="plat-tabs" id="platTabs"></div>
+    </div>
+    <div class="status-bar-right" id="updateTime">正在加载...</div>
   </div>
 
-  <div class="panel active" id="panel-all">
-    <div class="all-grid" id="allGrid"></div>
-  </div>
+  <!-- 网格容器 -->
+  <div class="news-grid" id="newsGrid"></div>
 
-  <div class="panel" id="panel-tencent"><div class="full-card" id="full-tencent"></div></div>
-  <div class="panel" id="panel-baidu"><div class="full-card" id="full-baidu"></div></div>
-  <div class="panel" id="panel-weibo"><div class="full-card" id="full-weibo"></div></div>
-  <div class="panel" id="panel-zhihu"><div class="full-card" id="full-zhihu"></div></div>
-  <div class="panel" id="panel-bilibili"><div class="full-card" id="full-bilibili"></div></div>
-  <div class="panel" id="panel-people"><div class="full-card" id="full-people"></div></div>
-  <div class="panel" id="panel-xinhua"><div class="full-card" id="full-xinhua"></div></div>
+  <!-- 全屏单平台视图 -->
+  <div class="full-view" id="fullView">
+    <div class="card" id="fullCard" style="max-width:700px;margin:0 auto"></div>
+  </div>
 </main>
 
+<!-- ════ 登录/注册 MODAL ═════════════════════════════════════ -->
+<div class="modal-overlay" id="authModal" onclick="closeModalOnBg(event)">
+  <div class="modal">
+    <h3>👤 账号</h3>
+    <div class="modal-tabs">
+      <button class="modal-tab active" onclick="switchAuthTab('login')">登录</button>
+      <button class="modal-tab" onclick="switchAuthTab('register')">注册</button>
+    </div>
+    <div id="authErr" class="modal-err"></div>
+    <input type="text" id="authUsername" placeholder="用户名" autocomplete="username" />
+    <input type="password" id="authPassword" placeholder="密码（至少6位）" autocomplete="current-password" />
+    <div class="modal-footer">
+      <button class="icon-btn" onclick="closeAuthModal()">取消</button>
+      <button class="icon-btn primary" id="authSubmitBtn" onclick="submitAuth()">登录</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 侧栏抽屉 ═══════════════════════════════════════════ -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-head">
+    <h3 id="drawerTitle">收藏</h3>
+    <button class="drawer-close" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="drawer-tabs" id="drawerTabBar" style="display:none">
+    <button class="drawer-tab active" onclick="switchDrawerTab('fav')">⭐ 收藏</button>
+    <button class="drawer-tab" onclick="switchDrawerTab('history')">🕒 历史</button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+  <div class="drawer-footer" id="drawerFooter"></div>
+</div>
+
+<!-- ════ Toast ════════════════════════════════════════════ -->
+<div id="toast"></div>
+
 <script>
-// ── 平台配置 ──────────────────────────────────────
-const PLATFORMS = [
-  { id:"tencent",  label:"腾讯新闻", dot:"tencent-dot",  home:"https://news.qq.com/" },
-  { id:"baidu",    label:"百度热搜", dot:"baidu-dot",    home:"https://top.baidu.com/board?tab=realtime" },
-  { id:"weibo",    label:"微博热搜", dot:"weibo-dot",    home:"https://s.weibo.com/top/summary" },
-  { id:"zhihu",    label:"知乎热搜", dot:"zhihu-dot",    home:"https://www.zhihu.com/" },
-  { id:"bilibili", label:"B站热搜",  dot:"bilibili-dot", home:"https://www.bilibili.com/" },
-  { id:"people",   label:"人民网",   dot:"people-dot",   home:"https://www.people.com.cn/" },
-  { id:"xinhua",   label:"新华网",   dot:"xinhua-dot",   home:"https://www.news.cn/" },
-];
+// ════════════════════════════════════════════════════════════
+// 平台元数据
+// ════════════════════════════════════════════════════════════
+const PLATFORM_META = {
+  // 综合
+  weibo:      { label:"微博热搜",   color:"#ff7e5f", home:"https://s.weibo.com/top/summary",  emoji:"🌊" },
+  tencent:    { label:"腾讯新闻",   color:"#07c160", home:"https://news.qq.com/",              emoji:"📰" },
+  toutiao:    { label:"今日头条",   color:"#e63946", home:"https://www.toutiao.com/",          emoji:"📲" },
+  wangyi:     { label:"网易新闻",   color:"#cc0000", home:"https://news.163.com/",             emoji:"📡" },
+  sina:       { label:"新浪新闻",   color:"#ff8800", home:"https://news.sina.com.cn/",         emoji:"📢" },
+  rmrb:       { label:"人民日报",   color:"#dc2626", home:"https://www.people.com.cn/",        emoji:"🗞️"  },
+  cctv:       { label:"央视新闻",   color:"#1d4ed8", home:"https://news.cctv.com/",            emoji:"📺" },
+  xinhua:     { label:"新华社",     color:"#b91c1c", home:"https://www.news.cn/",              emoji:"📣" },
+  pengpai:    { label:"澎湃新闻",   color:"#1e40af", home:"https://www.thepaper.cn/",          emoji:"💧" },
+  zhihu:      { label:"知乎",       color:"#0084ff", home:"https://www.zhihu.com/",            emoji:"🤔" },
+  bilibili:   { label:"B站",        color:"#fb7299", home:"https://www.bilibili.com/",         emoji:"📹" },
+  // 科技
+  "36kr":     { label:"36氪",       color:"#21a179", home:"https://36kr.com/",                 emoji:"🚀" },
+  huxiu:      { label:"虎嗅",       color:"#e63000", home:"https://www.huxiu.com/",            emoji:"🐯" },
+  ifanr:      { label:"爱范儿",     color:"#6366f1", home:"https://www.ifanr.com/",            emoji:"💡" },
+  sspai:      { label:"少数派",     color:"#d97706", home:"https://sspai.com/",                emoji:"📱" },
+  ithome:     { label:"IT之家",     color:"#0ea5e9", home:"https://www.ithome.com/",           emoji:"🖥️" },
+  github:     { label:"GitHub趋势", color:"#6e7681", home:"https://github.com/trending",      emoji:"🐙" },
+  // 娱乐
+  douban:     { label:"豆瓣电影",   color:"#007722", home:"https://movie.douban.com/",         emoji:"🎬" },
+  maoyan:     { label:"猫眼电影",   color:"#ff3f3f", home:"https://www.maoyan.com/board/4",   emoji:"🐱" },
+  weibo_ent:  { label:"微博娱乐",   color:"#ff5c8d", home:"https://s.weibo.com/weibo?q=%23%E5%A8%B1%E4%B9%90%23", emoji:"⭐" },
+  sina_ent:   { label:"新浪娱乐",   color:"#f97316", home:"https://ent.sina.com.cn/",          emoji:"🎤" },
+  ifeng_ent:  { label:"凤凰娱乐",   color:"#8b5cf6", home:"https://ent.ifeng.com/",           emoji:"🦅" },
+  // 财经
+  caixin:     { label:"财新",       color:"#b45309", home:"https://www.caixin.com/",           emoji:"💰" },
+  yicai:      { label:"第一财经",   color:"#1e3a8a", home:"https://www.yicai.com/",            emoji:"📊" },
+  jiemian:    { label:"界面新闻",   color:"#0f766e", home:"https://www.jiemian.com/",          emoji:"📑" },
+  wallstreet: { label:"华尔街见闻", color:"#2563eb", home:"https://wallstreetcn.com/",         emoji:"🏦" },
+  xueqiu:     { label:"雪球",       color:"#06b6d4", home:"https://xueqiu.com/",              emoji:"❄️" },
+  // 军事国际
+  guancha:    { label:"观察者网",   color:"#dc2626", home:"https://www.guancha.cn/",           emoji:"🔍" },
+  huanqiu:    { label:"环球时报",   color:"#7c3aed", home:"https://www.huanqiu.com/",          emoji:"🌏" },
+  cankaoxiaoxi:{ label:"国际参考", color:"#be185d", home:"https://www.news.cn/world/",        emoji:"🌐" },
+  // 体育
+  hupu:       { label:"虎扑",       color:"#e11d48", home:"https://bbs.hupu.com/all-gambia",  emoji:"🏀" },
+  dongqiudi:  { label:"懂球帝",     color:"#16a34a", home:"https://www.dongqiudi.com/",       emoji:"⚽" },
+  cctv_sports:{ label:"央视体育",   color:"#1d4ed8", home:"https://sports.cctv.com/",         emoji:"🏅" },
+};
 
-let newsData = {};
+const CATEGORIES = {
+  "综合":     ["weibo","tencent","toutiao","wangyi","sina","rmrb","cctv","xinhua","pengpai","zhihu","bilibili"],
+  "科技":     ["36kr","huxiu","ifanr","sspai","ithome","github"],
+  "娱乐":     ["douban","maoyan","weibo_ent","sina_ent","ifeng_ent"],
+  "财经":     ["caixin","yicai","jiemian","wallstreet","xueqiu"],
+  "军事国际": ["guancha","huanqiu","cankaoxiaoxi"],
+  "体育":     ["hupu","dongqiudi","cctv_sports"],
+};
+
+// ════════════════════════════════════════════════════════════
+// 状态
+// ════════════════════════════════════════════════════════════
+let currentCat = "综合";
+let currentPlat = null;     // null = 显示整个分类网格
+let newsCache = {};         // { platformId: { items, is_realtime, fetched_at, update_note } }
 let loading = false;
+let authToken = localStorage.getItem("hn_token") || "";
+let authUser  = JSON.parse(localStorage.getItem("hn_user") || "null");
+let authMode  = "login";
+let favIds    = new Set();    // 已收藏 URL 集合（本地标记）
+let drawerMode = "fav";
+let userMenuOpen = false;
 
-// ── Tab 切换 ──────────────────────────────────────
-document.getElementById("tabNav").addEventListener("click", e => {
-  const btn = e.target.closest(".tab-btn");
-  if (!btn) return;
-  const id = btn.dataset.id;
-  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-  btn.classList.add("active");
-  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
-  document.getElementById("panel-" + id).classList.add("active");
-});
-
-// ── 工具 ──────────────────────────────────────────
-function rankClass(n) {
-  if (n === 1) return "rank r1";
-  if (n === 2) return "rank r2";
-  if (n === 3) return "rank r3";
+// ════════════════════════════════════════════════════════════
+// 工具
+// ════════════════════════════════════════════════════════════
+function esc(s) {
+  return String(s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+function rankCls(n) {
+  if (n===1) return "rank r1"; if (n===2) return "rank r2"; if (n===3) return "rank r3";
   return "rank";
 }
-function hotTagClass(hot) {
-  if (hot === "沸" || hot === "爆") return "hot-tag hot1";
-  if (hot === "热") return "hot-tag hot2";
+function hotCls(h) {
+  if (!h) return "hot-tag";
+  if (h==="沸"||h==="爆") return "hot-tag hot1";
+  if (h==="热") return "hot-tag hot2";
+  if (h.includes("万")) return "hot-tag hot2";
   return "hot-tag";
 }
-function escHtml(s) {
-  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-          .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+function showToast(msg, dur=2000) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), dur);
 }
-function renderList(items, max = 999) {
-  if (!items || items.length === 0) {
-    return `<div class="error-row">暂无数据，已显示内置内容</div>`;
+
+// ════════════════════════════════════════════════════════════
+// 认证 UI
+// ════════════════════════════════════════════════════════════
+function updateAuthUI() {
+  if (authUser) {
+    document.getElementById("loginBtn").style.display = "none";
+    document.getElementById("userMenu").style.display = "block";
+    document.getElementById("userNameText").textContent = authUser.username;
+    loadFavIds();
+  } else {
+    document.getElementById("loginBtn").style.display = "block";
+    document.getElementById("userMenu").style.display = "none";
+    favIds.clear();
+    refreshFavBtns();
   }
-  return items.slice(0, max).map(item => `
-    <li class="news-item">
-      <span class="${rankClass(item.rank)}">${item.rank}</span>
-      <a class="news-title" href="${escHtml(item.url)}" target="_blank" rel="noopener">
-        ${escHtml(item.title)}
-      </a>
-      ${item.hot ? `<span class="${hotTagClass(item.hot)}">${escHtml(item.hot)}</span>` : ""}
-    </li>`).join("");
-}
-function renderCard(p, items, preview = true) {
-  const max = preview ? 10 : 30;
-  return `
-    <div class="card-head ${p.id}">
-      <span class="card-title">
-        <span class="plat-dot ${p.dot}"></span>${p.label}
-      </span>
-      <a class="card-link" href="${p.home}" target="_blank" rel="noopener">官网 ↗</a>
-    </div>
-    ${renderList(items, max)}`;
 }
 
-// ── 渲染 ──────────────────────────────────────────
-function renderAll() {
-  const grid = document.getElementById("allGrid");
-  grid.innerHTML = PLATFORMS.map(p => {
-    const items = newsData[p.id] || [];
-    return `<div class="card">${renderCard(p, items, true)}</div>`;
-  }).join("");
+function openAuthModal() {
+  document.getElementById("authModal").classList.add("open");
+  document.getElementById("authUsername").focus();
+  document.getElementById("authErr").textContent = "";
 }
-function renderFull(pid) {
-  const p = PLATFORMS.find(x => x.id === pid);
-  if (!p) return;
-  const items = newsData[pid] || [];
-  document.getElementById("full-" + pid).innerHTML = renderCard(p, items, false);
+function closeAuthModal() {
+  document.getElementById("authModal").classList.remove("open");
+}
+function closeModalOnBg(e) {
+  if (e.target.id === "authModal") closeAuthModal();
+}
+function switchAuthTab(mode) {
+  authMode = mode;
+  document.querySelectorAll(".modal-tab").forEach((el,i) => {
+    el.classList.toggle("active", (i===0 && mode==="login") || (i===1 && mode==="register"));
+  });
+  document.getElementById("authSubmitBtn").textContent = mode === "login" ? "登录" : "注册";
+  document.getElementById("authErr").textContent = "";
+}
+async function submitAuth() {
+  const username = document.getElementById("authUsername").value.trim();
+  const password = document.getElementById("authPassword").value;
+  const errEl = document.getElementById("authErr");
+  if (!username || !password) { errEl.textContent = "请填写完整"; return; }
+  const btn = document.getElementById("authSubmitBtn");
+  btn.disabled = true;
+  try {
+    const resp = await fetch(`/api/auth/${authMode}`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ username, password })
+    });
+    const data = await resp.json();
+    if (!resp.ok) { errEl.textContent = data.error || "操作失败"; return; }
+    authToken = data.token;
+    authUser  = { username: data.username, user_id: data.user_id };
+    localStorage.setItem("hn_token", authToken);
+    localStorage.setItem("hn_user", JSON.stringify(authUser));
+    closeAuthModal();
+    updateAuthUI();
+    showToast("🎉 " + (authMode==="login" ? "登录成功" : "注册成功"));
+  } catch(e) {
+    errEl.textContent = "网络错误，请重试";
+  } finally {
+    btn.disabled = false;
+  }
+}
+function logout() {
+  authToken = ""; authUser = null;
+  localStorage.removeItem("hn_token"); localStorage.removeItem("hn_user");
+  userMenuOpen = false;
+  document.getElementById("userDropdown").classList.remove("open");
+  updateAuthUI();
+  showToast("已退出登录");
+}
+function toggleUserMenu() {
+  userMenuOpen = !userMenuOpen;
+  document.getElementById("userDropdown").classList.toggle("open", userMenuOpen);
+}
+document.addEventListener("click", e => {
+  if (!e.target.closest(".user-menu-wrap")) {
+    userMenuOpen = false;
+    const d = document.getElementById("userDropdown");
+    if (d) d.classList.remove("open");
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+// 收藏
+// ════════════════════════════════════════════════════════════
+async function loadFavIds() {
+  if (!authUser) return;
+  try {
+    const resp = await fetch("/api/favorites", {
+      headers: {"Authorization": "Bearer " + authToken}
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    favIds = new Set(data.map(f => f.url));
+    refreshFavBtns();
+  } catch(e) {}
+}
+function refreshFavBtns() {
+  document.querySelectorAll(".fav-btn").forEach(btn => {
+    const url = btn.dataset.url;
+    btn.classList.toggle("active", favIds.has(url));
+    btn.title = favIds.has(url) ? "取消收藏" : "收藏";
+  });
+}
+async function toggleFav(btn) {
+  if (!authUser) { openAuthModal(); return; }
+  const url   = btn.dataset.url;
+  const title = btn.dataset.title;
+  const platform = btn.dataset.platform;
+  const isFav = favIds.has(url);
+  if (isFav) {
+    // 找 id 删除
+    try {
+      const resp = await fetch("/api/favorites", {
+        headers: {"Authorization": "Bearer " + authToken}
+      });
+      const data = await resp.json();
+      const fav = data.find(f => f.url === url);
+      if (fav) {
+        await fetch("/api/favorites/" + fav.id, {
+          method: "DELETE",
+          headers: {"Authorization": "Bearer " + authToken}
+        });
+      }
+      favIds.delete(url);
+      showToast("已取消收藏");
+    } catch(e) { showToast("操作失败"); }
+  } else {
+    try {
+      await fetch("/api/favorites", {
+        method: "POST",
+        headers: {"Authorization":"Bearer "+authToken, "Content-Type":"application/json"},
+        body: JSON.stringify({ title, url, platform })
+      });
+      favIds.add(url);
+      showToast("⭐ 已收藏");
+    } catch(e) { showToast("操作失败"); }
+  }
+  refreshFavBtns();
 }
 
-// ── 加载中 ────────────────────────────────────────
-function setAllLoading() {
-  const loadingHTML = `
-    <div class="card-head">
-      <span class="card-title"><span class="plat-dot"></span>加载中...</span>
-    </div>
-    <div class="status-row"><div class="spinner"></div>正在抓取热点...</div>`;
-  const grid = document.getElementById("allGrid");
-  grid.innerHTML = PLATFORMS.map(() => `<div class="card">${loadingHTML}</div>`).join("");
-  PLATFORMS.forEach(p => {
-    const el = document.getElementById("full-" + p.id);
-    if (el) el.innerHTML = loadingHTML;
+// 记录浏览历史
+async function trackHistory(title, url, platform) {
+  if (!authUser) return;
+  try {
+    await fetch("/api/history", {
+      method: "POST",
+      headers: {"Authorization":"Bearer "+authToken, "Content-Type":"application/json"},
+      body: JSON.stringify({ title, url, platform })
+    });
+  } catch(e) {}
+}
+
+// ════════════════════════════════════════════════════════════
+// 侧栏抽屉
+// ════════════════════════════════════════════════════════════
+function openDrawer(mode) {
+  drawerMode = mode;
+  userMenuOpen = false;
+  document.getElementById("userDropdown").classList.remove("open");
+  document.getElementById("drawerOverlay").classList.add("open");
+  document.getElementById("drawer").classList.add("open");
+  document.getElementById("drawerTabBar").style.display = "flex";
+  loadDrawerContent();
+}
+function closeDrawer() {
+  document.getElementById("drawerOverlay").classList.remove("open");
+  document.getElementById("drawer").classList.remove("open");
+}
+function switchDrawerTab(mode) {
+  drawerMode = mode;
+  document.querySelectorAll(".drawer-tab").forEach((el, i) => {
+    el.classList.toggle("active", (i===0&&mode==="fav")||(i===1&&mode==="history"));
+  });
+  loadDrawerContent();
+}
+async function loadDrawerContent() {
+  const body = document.getElementById("drawerBody");
+  const footer = document.getElementById("drawerFooter");
+  const title = document.getElementById("drawerTitle");
+  title.textContent = drawerMode === "fav" ? "⭐ 我的收藏" : "🕒 浏览记录";
+  body.innerHTML = `<div class="drawer-empty">加载中...</div>`;
+  footer.innerHTML = "";
+  if (!authUser) {
+    body.innerHTML = `<div class="drawer-empty">请先登录</div>`; return;
+  }
+  try {
+    const endpoint = drawerMode === "fav" ? "/api/favorites" : "/api/history";
+    const resp = await fetch(endpoint, { headers: {"Authorization":"Bearer "+authToken} });
+    if (!resp.ok) { body.innerHTML = `<div class="drawer-empty">加载失败</div>`; return; }
+    const data = await resp.json();
+    if (!data.length) {
+      body.innerHTML = `<div class="drawer-empty">${drawerMode==="fav"?"暂无收藏":"暂无浏览记录"}</div>`;
+      return;
+    }
+    body.innerHTML = data.map(item => {
+      const meta = drawerMode === "fav" ? item.saved_at : item.viewed_at;
+      const delAttr = drawerMode === "fav"
+        ? `onclick="delFav(${item.id}, this)"` : "";
+      return `<div class="drawer-item">
+        <a href="${esc(item.url)}" target="_blank" rel="noopener"
+           onclick="trackHistory('${esc(item.title)}','${esc(item.url)}','${esc(item.platform||'')}')"
+        >${esc(item.title)}</a>
+        <div class="di-meta">
+          <span>${item.platform || ""}</span>
+          <span>${(meta||"").slice(0,16)}</span>
+          ${drawerMode==="fav" ? `<button class="di-del" ${delAttr}>🗑</button>` : ""}
+        </div>
+      </div>`;
+    }).join("");
+
+    if (drawerMode === "history") {
+      footer.innerHTML = `<button class="icon-btn danger" style="width:100%" onclick="clearHistory()">🗑 清空历史</button>`;
+    }
+  } catch(e) {
+    body.innerHTML = `<div class="drawer-empty">加载出错</div>`;
+  }
+}
+async function delFav(id, btn) {
+  try {
+    await fetch("/api/favorites/" + id, {
+      method: "DELETE",
+      headers: {"Authorization":"Bearer "+authToken}
+    });
+    btn.closest(".drawer-item").remove();
+    await loadFavIds();
+    showToast("已删除");
+  } catch(e) { showToast("删除失败"); }
+}
+async function clearHistory() {
+  if (!confirm("确认清空全部浏览记录？")) return;
+  try {
+    await fetch("/api/history", {
+      method: "DELETE",
+      headers: {"Authorization":"Bearer "+authToken}
+    });
+    loadDrawerContent();
+    showToast("已清空");
+  } catch(e) { showToast("操作失败"); }
+}
+
+// ════════════════════════════════════════════════════════════
+// 分类 & 平台切换
+// ════════════════════════════════════════════════════════════
+document.getElementById("catNav").addEventListener("click", e => {
+  const btn = e.target.closest(".cat-btn");
+  if (!btn) return;
+  const cat = btn.dataset.cat;
+  if (cat === currentCat && currentPlat === null) return;
+  document.querySelectorAll(".cat-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  currentCat = cat;
+  currentPlat = null;
+  renderPlatTabs();
+  refreshCurrent();
+});
+
+function renderPlatTabs() {
+  const container = document.getElementById("platTabs");
+  const plats = CATEGORIES[currentCat] || [];
+  const html = `<button class="plat-tab active" data-plat="all" onclick="selectPlat(null,this)">全部</button>` +
+    plats.map(pid => {
+      const m = PLATFORM_META[pid] || {};
+      return `<button class="plat-tab" data-plat="${pid}"
+        style="--pc:${m.color||'#60a5fa'}"
+        onclick="selectPlat('${pid}',this)"
+      >${m.emoji||""} ${m.label||pid}</button>`;
+    }).join("");
+  container.innerHTML = html;
+  // 给 active 的着色
+  applyPlatTabColors();
+}
+
+function applyPlatTabColors() {
+  document.querySelectorAll(".plat-tab.active").forEach(btn => {
+    const pid = btn.dataset.plat;
+    if (pid === "all") {
+      btn.style.background = "var(--accent)";
+      btn.style.borderColor = "var(--accent)";
+      btn.style.color = "#fff";
+    } else {
+      const m = PLATFORM_META[pid] || {};
+      btn.style.background = m.color || "var(--accent)";
+      btn.style.borderColor = m.color || "var(--accent)";
+      btn.style.color = "#fff";
+    }
   });
 }
 
-// ── 刷新 ──────────────────────────────────────────
-async function refreshAll() {
+function selectPlat(pid, btn) {
+  document.querySelectorAll(".plat-tab").forEach(b => {
+    b.classList.remove("active");
+    b.style.background = ""; b.style.borderColor = ""; b.style.color = "";
+  });
+  btn.classList.add("active");
+  applyPlatTabColors();
+  currentPlat = pid;
+  renderView();
+}
+
+// ════════════════════════════════════════════════════════════
+// 渲染
+// ════════════════════════════════════════════════════════════
+function skeletonCard() {
+  return `<div class="skel-line w80 skeleton"></div>
+          <div class="skel-line w65 skeleton"></div>
+          <div class="skel-line w72 skeleton"></div>
+          <div class="skel-line w80 skeleton"></div>
+          <div class="skel-line w65 skeleton"></div>`;
+}
+
+function renderNewsItem(item, platformId) {
+  const isFav = favIds.has(item.url);
+  return `<li class="news-item">
+    <span class="${rankCls(item.rank)}">${item.rank}</span>
+    <a class="news-link" href="${esc(item.url)}" target="_blank" rel="noopener"
+       onclick="trackHistory('${esc(item.title).replace(/'/g,"&#39;")}','${esc(item.url)}','${platformId}')"
+    >${esc(item.title)}</a>
+    <div class="item-actions">
+      ${item.hot ? `<span class="${hotCls(item.hot)}">${esc(item.hot)}</span>` : ""}
+      <button class="fav-btn${isFav?" active":""}"
+        data-url="${esc(item.url)}"
+        data-title="${esc(item.title).replace(/"/g,"&quot;")}"
+        data-platform="${platformId}"
+        title="${isFav?"取消收藏":"收藏"}"
+        onclick="toggleFav(this)"
+      >${isFav?"⭐":"☆"}</button>
+    </div>
+  </li>`;
+}
+
+function renderCard(platformId, data, preview=true) {
+  const m = PLATFORM_META[platformId] || { label: platformId, color: "#60a5fa", home: "#" };
+  const maxItems = preview ? 10 : 25;
+
+  const badge = data
+    ? (data.is_realtime
+        ? `<span class="update-badge realtime">⚡ 实时</span>`
+        : `<span class="update-badge nonrt" title="${esc(data.update_note||'')}">🕒 ${esc(data.update_note||"非实时")}</span>`)
+    : "";
+
+  const fetchedAt = data?.fetched_at ? `更新 ${data.fetched_at}` : "";
+
+  let body = "";
+  if (!data) {
+    body = skeletonCard();
+  } else if (!data.items || data.items.length === 0) {
+    body = `<div class="empty-row"><span class="emo">😅</span><span>抓取失败（${data.fetched_at||""}）</span></div>`;
+  } else {
+    body = `<ul class="news-list">${data.items.slice(0, maxItems).map(it => renderNewsItem(it, platformId)).join("")}</ul>`;
+  }
+
+  return `<div class="card-head" style="--accent:${m.color}">
+    <div class="card-head-bar" style="background:${m.color}"></div>
+    <div class="card-title-wrap">
+      <span class="plat-dot" style="background:${m.color};box-shadow:0 0 5px ${m.color}"></span>
+      <span class="card-name">${m.emoji||""} ${m.label}</span>
+      ${badge}
+    </div>
+    <div class="card-head-right">
+      <span style="font-size:.66rem;color:var(--text-muted)">${fetchedAt}</span>
+      <a class="card-link" href="${m.home}" target="_blank" rel="noopener">官网 ↗</a>
+    </div>
+  </div>
+  ${body}`;
+}
+
+function renderView() {
+  const grid = document.getElementById("newsGrid");
+  const full = document.getElementById("fullView");
+  const plats = CATEGORIES[currentCat] || [];
+
+  if (!currentPlat) {
+    // 网格视图
+    grid.style.display = "grid";
+    full.classList.remove("active");
+    grid.innerHTML = plats.map(pid => {
+      const data = newsCache[pid];
+      return `<div class="card" id="card-${pid}">${renderCard(pid, data, true)}</div>`;
+    }).join("");
+  } else {
+    // 单平台全屏
+    grid.style.display = "none";
+    full.classList.add("active");
+    const data = newsCache[currentPlat];
+    document.getElementById("fullCard").innerHTML = renderCard(currentPlat, data, false);
+  }
+  refreshFavBtns();
+}
+
+// ════════════════════════════════════════════════════════════
+// 数据加载
+// ════════════════════════════════════════════════════════════
+async function refreshCurrent() {
   if (loading) return;
   loading = true;
   const btn = document.getElementById("refreshBtn");
-  const spinEl = document.getElementById("spinIcon");
-  btn.disabled = true;
-  spinEl.classList.add("spinning");
-  document.getElementById("updateTime").textContent = "正在刷新...";
-  setAllLoading();
+  const spin = document.getElementById("spinIcon");
+  btn.disabled = true; spin.classList.add("spinning");
+  document.getElementById("updateTime").textContent = "正在加载...";
+
+  // 先渲染骨架
+  renderView();
+
+  const plats = currentPlat ? [currentPlat] : (CATEGORIES[currentCat] || []);
+
   try {
-    const resp = await fetch("/api/news/all");
+    const ids = plats.join(",");
+    const resp = await fetch(`/api/news/batch?platforms=${ids}`);
     if (!resp.ok) throw new Error("HTTP " + resp.status);
-    newsData = await resp.json();
-  } catch (err) {
-    console.error("获取数据失败:", err);
-    document.getElementById("updateTime").textContent = "⚠ 网络请求失败，显示本地内容";
+    const data = await resp.json();
+    Object.assign(newsCache, data);
+  } catch(e) {
+    console.error("加载失败:", e);
+    document.getElementById("updateTime").textContent = "⚠ 加载失败";
   } finally {
-    renderAll();
-    PLATFORMS.forEach(p => renderFull(p.id));
+    renderView();
     const now = new Date();
-    document.getElementById("updateTime").textContent = `最近更新：${now.toLocaleTimeString("zh-CN",{hour12:false})}`;
+    document.getElementById("updateTime").textContent =
+      `最后刷新：${now.toLocaleTimeString("zh-CN",{hour12:false})}`;
     loading = false;
-    btn.disabled = false;
-    spinEl.classList.remove("spinning");
+    btn.disabled = false; spin.classList.remove("spinning");
   }
 }
 
-// 自动刷新（5分钟）
-setInterval(refreshAll, 5 * 60 * 1000);
+// ════════════════════════════════════════════════════════════
+// Keep-alive（每 4.5 分钟 ping 一次，防 Render 休眠）
+// ════════════════════════════════════════════════════════════
+setInterval(() => {
+  fetch("/api/ping").catch(()=>{});
+}, 4.5 * 60 * 1000);
 
-// 初始加载
-refreshAll();
+// 自动刷新（5分钟）
+setInterval(() => {
+  if (!loading) refreshCurrent();
+}, 5 * 60 * 1000);
+
+// ════════════════════════════════════════════════════════════
+// 初始化
+// ════════════════════════════════════════════════════════════
+(function init() {
+  updateAuthUI();
+  renderPlatTabs();
+  refreshCurrent();
+})();
 </script>
 </body>
 </html>
