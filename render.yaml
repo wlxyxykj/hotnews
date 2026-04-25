@@ -1,4 +1,13 @@
 # Render 部署配置 - 热点聚合 v2.0
+# 部署步骤：上传到 GitHub → Render 导入 → 自动部署
+#
+# ⚠ Keep-alive 防休眠说明：
+#   Render 免费实例 15 分钟无流量会休眠，下次访问需要冷启动约 30 秒。
+#   解决方案（二选一）：
+#   A) 使用 UptimeRobot（免费）：https://uptimerobot.com
+#      新建 HTTP(S) Monitor，URL 填写你的 Render 地址/api/ping，间隔 5 分钟
+#   B) 前端已内置每 4.5 分钟 ping /api/ping，浏览器保持打开即可保活
+
 services:
   - type: web
     name: hotnews

@@ -361,6 +361,72 @@
 
     @keyframes fadeIn { from { opacity:0; transform: translateY(5px); } to { opacity:1; transform:translateY(0); } }
 
+    /* ════ 失败平台折叠区 ═══════════════════════════════════════ */
+    .failed-section {
+      margin-top: 1.5rem;
+      border: 1px solid rgba(239,68,68,.2);
+      border-radius: 13px;
+      overflow: hidden;
+      background: rgba(239,68,68,.03);
+    }
+    .failed-toggle {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: .7rem 1.1rem;
+      cursor: pointer; user-select: none;
+      font-size: .8rem; color: var(--text-muted);
+      transition: background .15s;
+    }
+    .failed-toggle:hover { background: rgba(239,68,68,.06); }
+    .failed-toggle-left { display: flex; align-items: center; gap: .5rem; }
+    .failed-toggle-left .emo { font-size: 1rem; }
+    .failed-badge {
+      background: rgba(239,68,68,.15); color: #f87171;
+      border: 1px solid rgba(239,68,68,.3);
+      border-radius: 999px; padding: .1rem .55rem;
+      font-size: .72rem;
+    }
+    .failed-arrow { transition: transform .2s; font-size: .75rem; }
+    .failed-arrow.open { transform: rotate(180deg); }
+    .failed-body {
+      display: none;
+      border-top: 1px solid rgba(239,68,68,.15);
+      padding: .5rem;
+    }
+    .failed-body.open { display: block; }
+    .failed-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: .5rem;
+    }
+    .failed-card {
+      background: var(--surface);
+      border: 1px solid rgba(239,68,68,.15);
+      border-radius: 8px;
+      padding: .6rem .8rem;
+      display: flex; flex-direction: column; gap: .3rem;
+    }
+    .failed-card-name {
+      display: flex; align-items: center; gap: .35rem;
+      font-size: .8rem; font-weight: 600;
+    }
+    .failed-dot { width: 6px; height: 6px; border-radius: 50%; background: #f87171; }
+    .failed-card-note {
+      font-size: .68rem; color: var(--text-muted);
+      padding-left: .9rem;
+    }
+
+    /* ════ 访客统计 ════════════════════════════════════════════════ */
+    .stats-bar {
+      margin-top: 1.5rem;
+      padding: .6rem 1rem;
+      border-radius: 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      gap: 1.2rem; font-size: .76rem; color: var(--text-muted);
+    }
+    .stats-bar span { display: flex; align-items: center; gap: .3rem; }
+
     @media (max-width: 640px) {
       .header-inner { padding: 0 .8rem; }
       main { padding: .8rem .8rem 4rem; }
@@ -368,6 +434,8 @@
       .logo span { display: none; }
     }
   </style>
+  <!-- 不蒜子统计 -->
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
 </head>
 <body>
 
@@ -425,6 +493,27 @@
   <!-- 全屏单平台视图 -->
   <div class="full-view" id="fullView">
     <div class="card" id="fullCard" style="max-width:700px;margin:0 auto"></div>
+  </div>
+
+  <!-- 失败平台折叠区 -->
+  <div id="failedSection" class="failed-section" style="display:none">
+    <div class="failed-toggle" onclick="toggleFailed()">
+      <div class="failed-toggle-left">
+        <span class="emo">⚠️</span>
+        <span id="failedLabel">以下平台暂时无法抓取（点击展开）</span>
+        <span class="failed-badge" id="failedBadge">0</span>
+      </div>
+      <span class="failed-arrow" id="failedArrow">▼</span>
+    </div>
+    <div class="failed-body" id="failedBody">
+      <div class="failed-grid" id="failedGrid"></div>
+    </div>
+  </div>
+
+  <!-- 访客统计 -->
+  <div class="stats-bar">
+    <span>👁️ 访问 <span id="busuanzi_value_site_pv"></span> 次</span>
+    <span>👤 访客 <span id="busuanzi_value_site_uv"></span> 人</span>
   </div>
 </main>
 
@@ -525,6 +614,7 @@ const CATEGORIES = {
 let currentCat = "综合";
 let currentPlat = null;     // null = 显示整个分类网格
 let newsCache = {};         // { platformId: { items, is_realtime, fetched_at, update_note } }
+let failedPlatforms = [];   // 当前分类失败的平台列表
 let loading = false;
 let authToken = localStorage.getItem("hn_token") || "";
 let authUser  = JSON.parse(localStorage.getItem("hn_user") || "null");
@@ -894,11 +984,14 @@ function renderNewsItem(item, platformId) {
 function renderCard(platformId, data, preview=true) {
   const m = PLATFORM_META[platformId] || { label: platformId, color: "#60a5fa", home: "#" };
   const maxItems = preview ? 10 : 25;
+  const isFailed = data?.status === "failed" || !data?.items?.length;
 
   const badge = data
-    ? (data.is_realtime
-        ? `<span class="update-badge realtime">⚡ 实时</span>`
-        : `<span class="update-badge nonrt" title="${esc(data.update_note||'')}">🕒 ${esc(data.update_note||"非实时")}</span>`)
+    ? (isFailed
+        ? `<span class="update-badge" style="border-color:rgba(239,68,68,.4);color:#f87171;background:rgba(239,68,68,.08)">❌ 不可用</span>`
+        : (data.is_realtime
+            ? `<span class="update-badge realtime">⚡ 实时</span>`
+            : `<span class="update-badge nonrt" title="${esc(data.update_note||'')}">🕒 ${esc(data.update_note||"非实时")}</span>`))
     : "";
 
   const fetchedAt = data?.fetched_at ? `更新 ${data.fetched_at}` : "";
@@ -906,16 +999,16 @@ function renderCard(platformId, data, preview=true) {
   let body = "";
   if (!data) {
     body = skeletonCard();
-  } else if (!data.items || data.items.length === 0) {
-    body = `<div class="empty-row"><span class="emo">😅</span><span>抓取失败（${data.fetched_at||""}）</span></div>`;
+  } else if (isFailed) {
+    body = `<div class="empty-row"><span class="emo">😅</span><span>${esc(data.update_note || "抓取失败")}</span></div>`;
   } else {
     body = `<ul class="news-list">${data.items.slice(0, maxItems).map(it => renderNewsItem(it, platformId)).join("")}</ul>`;
   }
 
-  return `<div class="card-head" style="--accent:${m.color}">
-    <div class="card-head-bar" style="background:${m.color}"></div>
+  return `<div class="card-head" style="--accent:${m.color}${isFailed ? ";opacity:.6" : ""}">
+    <div class="card-head-bar" style="background:${isFailed ? "#6b7280" : m.color}"></div>
     <div class="card-title-wrap">
-      <span class="plat-dot" style="background:${m.color};box-shadow:0 0 5px ${m.color}"></span>
+      <span class="plat-dot" style="background:${isFailed ? "#6b7280" : m.color};box-shadow:0 0 5px ${isFailed ? "#6b7280" : m.color}"></span>
       <span class="card-name">${m.emoji||""} ${m.label}</span>
       ${badge}
     </div>
@@ -948,6 +1041,42 @@ function renderView() {
     document.getElementById("fullCard").innerHTML = renderCard(currentPlat, data, false);
   }
   refreshFavBtns();
+  renderFailedSection();
+}
+
+// ════ 失败平台折叠区 ══════════════════════════════════════
+function toggleFailed() {
+  const body  = document.getElementById("failedBody");
+  const arrow = document.getElementById("failedArrow");
+  const open  = body.classList.toggle("open");
+  arrow.classList.toggle("open", open);
+}
+
+function renderFailedSection() {
+  const section = document.getElementById("failedSection");
+  const badge   = document.getElementById("failedBadge");
+  const label   = document.getElementById("failedLabel");
+  const grid    = document.getElementById("failedGrid");
+
+  if (!failedPlatforms || failedPlatforms.length === 0) {
+    section.style.display = "none";
+    return;
+  }
+
+  badge.textContent = failedPlatforms.length;
+  label.textContent = `以下 ${failedPlatforms.length} 个平台暂时无法抓取（点击展开）`;
+  section.style.display = "block";
+
+  grid.innerHTML = failedPlatforms.map(fp => {
+    const m = PLATFORM_META[fp.platform] || {};
+    return `<div class="failed-card">
+      <div class="failed-card-name">
+        <span class="failed-dot"></span>
+        <span>${m.emoji||""} ${fp.name}</span>
+      </div>
+      <div class="failed-card-note">${esc(fp.note || "抓取失败")}</div>
+    </div>`;
+  }).join("");
 }
 
 // ════════════════════════════════════════════════════════════
@@ -971,7 +1100,14 @@ async function refreshCurrent() {
     const resp = await fetch(`/api/news/batch?platforms=${ids}`);
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     const data = await resp.json();
-    Object.assign(newsCache, data);
+
+    // 分离数据与元信息
+    const meta = data._meta || {};
+    failedPlatforms = meta.failed || [];
+
+    // 只保留数据部分
+    const { _meta: _, ...cleanData } = data;
+    Object.assign(newsCache, cleanData);
   } catch(e) {
     console.error("加载失败:", e);
     document.getElementById("updateTime").textContent = "⚠ 加载失败";
