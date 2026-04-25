@@ -124,6 +124,34 @@
     .icon-btn.primary:hover { background: #2563eb; }
     .icon-btn:disabled { opacity:.45; cursor:not-allowed; }
     .spin { display: inline-block; }
+
+    /* ════ 分享面板 ══════════════════════════════════════════════ */
+    .share-popup {
+      display: none; position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px 16px 0 0; width: 400px; max-width: 100vw;
+      padding: 1.2rem 1.2rem env(safe-area-inset-bottom, 1rem);
+      box-shadow: 0 -12px 40px rgba(0,0,0,.4); z-index: 450;
+      animation: slideUp .25s ease;
+    }
+    .share-popup.open { display: block; }
+    @keyframes slideUp { from { opacity:0; transform: translateX(-50%) translateY(20px); } to { opacity:1; transform: translateX(-50%) translateY(0); } }
+    .share-popup-title { font-size: .88rem; color: var(--text-muted); text-align: center; margin-bottom: 1rem; }
+    .share-grid { display: flex; justify-content: center; gap: 1.2rem; flex-wrap: wrap; }
+    .share-item {
+      display: flex; flex-direction: column; align-items: center; gap: .35rem;
+      cursor: pointer; transition: transform .15s;
+    }
+    .share-item:hover { transform: translateY(-3px); }
+    .share-item:active { transform: scale(.95); }
+    .share-icon { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+    .share-label { font-size: .68rem; color: var(--text-muted); }
+    .share-divider { border-top: 1px solid var(--border); margin: .8rem 0 .5rem; }
+    .share-close { width: 100%; padding: .5rem; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--surface2); color: var(--text); font-size: .82rem; cursor: pointer; }
+    .share-close:hover { background: var(--surface3); }
+    .share-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 440; }
+    .share-overlay.open { display: block; }
     .spin.spinning { animation: spin .7s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -461,6 +489,9 @@
       <button class="icon-btn" id="refreshBtn" onclick="refreshCurrent()">
         <span class="spin" id="spinIcon">↻</span> 刷新
       </button>
+      <button class="icon-btn" id="shareBtn" onclick="openShare()">
+        🔗 分享
+      </button>
       <!-- 未登录 -->
       <button class="icon-btn primary" id="loginBtn" onclick="openAuthModal()">登录</button>
       <!-- 已登录 -->
@@ -548,6 +579,36 @@
   </div>
   <div class="drawer-body" id="drawerBody"></div>
   <div class="drawer-footer" id="drawerFooter"></div>
+</div>
+
+<!-- ════ 分享面板 ════════════════════════════════════════════════ -->
+<div class="share-overlay" id="shareOverlay" onclick="closeShare()"></div>
+<div class="share-popup" id="sharePopup">
+  <div class="share-popup-title">分享到</div>
+  <div class="share-grid">
+    <div class="share-item" onclick="shareWechat()">
+      <div class="share-icon" style="background:#07c160">💚</div>
+      <span class="share-label">微信</span>
+    </div>
+    <div class="share-item" onclick="shareQQ()">
+      <div class="share-icon" style="background:#1296db">💬</div>
+      <span class="share-label">QQ</span>
+    </div>
+    <div class="share-item" onclick="shareWeibo()">
+      <div class="share-icon" style="background:#e6162d">🌊</div>
+      <span class="share-label">微博</span>
+    </div>
+    <div class="share-item" onclick="shareCopy()">
+      <div class="share-icon" style="background:#3b82f6">🔗</div>
+      <span class="share-label">复制链接</span>
+    </div>
+    <div class="share-item" onclick="shareNative()">
+      <div class="share-icon" style="background:#6366f1">📤</div>
+      <span class="share-label">更多</span>
+    </div>
+  </div>
+  <div class="share-divider"></div>
+  <button class="share-close" onclick="closeShare()">取消</button>
 </div>
 
 <!-- ════ Toast ════════════════════════════════════════════ -->
@@ -910,14 +971,17 @@ document.getElementById("catNav").addEventListener("click", e => {
 function renderPlatTabs() {
   const container = document.getElementById("platTabs");
   const plats = CATEGORIES[currentCat] || [];
+  const failedIds = new Set((failedPlatforms || []).map(fp => fp.platform));
   const html = `<button class="plat-tab active" data-plat="all" onclick="selectPlat(null,this)">全部</button>` +
-    plats.map(pid => {
-      const m = PLATFORM_META[pid] || {};
-      return `<button class="plat-tab" data-plat="${pid}"
-        style="--pc:${m.color||'#60a5fa'}"
-        onclick="selectPlat('${pid}',this)"
-      >${m.emoji||""} ${m.label||pid}</button>`;
-    }).join("");
+    plats
+      .filter(pid => !failedIds.has(pid))
+      .map(pid => {
+        const m = PLATFORM_META[pid] || {};
+        return `<button class="plat-tab" data-plat="${pid}"
+          style="--pc:${m.color||'#60a5fa'}"
+          onclick="selectPlat('${pid}',this)"
+        >${m.emoji||""} ${m.label||pid}</button>`;
+      }).join("");
   container.innerHTML = html;
   // 给 active 的着色
   applyPlatTabColors();
@@ -1024,21 +1088,32 @@ function renderView() {
   const grid = document.getElementById("newsGrid");
   const full = document.getElementById("fullView");
   const plats = CATEGORIES[currentCat] || [];
+  // 提取失败平台 ID 集合
+  const failedIds = new Set((failedPlatforms || []).map(fp => fp.platform));
 
   if (!currentPlat) {
-    // 网格视图
+    // 网格视图：排除失败平台
     grid.style.display = "grid";
     full.classList.remove("active");
-    grid.innerHTML = plats.map(pid => {
-      const data = newsCache[pid];
-      return `<div class="card" id="card-${pid}">${renderCard(pid, data, true)}</div>`;
-    }).join("");
+    grid.innerHTML = plats
+      .filter(pid => !failedIds.has(pid))
+      .map(pid => {
+        const data = newsCache[pid];
+        return `<div class="card" id="card-${pid}">${renderCard(pid, data, true)}</div>`;
+      }).join("");
   } else {
-    // 单平台全屏
-    grid.style.display = "none";
-    full.classList.add("active");
-    const data = newsCache[currentPlat];
-    document.getElementById("fullCard").innerHTML = renderCard(currentPlat, data, false);
+    // 单平台全屏：如果平台已失败，提示并切回网格
+    const failedIds = new Set((failedPlatforms || []).map(fp => fp.platform));
+    if (failedIds.has(currentPlat)) {
+      currentPlat = null;
+      grid.style.display = "grid";
+      full.classList.remove("active");
+    } else {
+      grid.style.display = "none";
+      full.classList.add("active");
+      const data = newsCache[currentPlat];
+      document.getElementById("fullCard").innerHTML = renderCard(currentPlat, data, false);
+    }
   }
   refreshFavBtns();
   renderFailedSection();
@@ -1132,6 +1207,97 @@ setInterval(() => {
 setInterval(() => {
   if (!loading) refreshCurrent();
 }, 5 * 60 * 1000);
+
+// ════════════════════════════════════════════════════════════
+// 分享功能
+// ════════════════════════════════════════════════════════════
+function openShare() {
+  document.getElementById("shareOverlay").classList.add("open");
+  document.getElementById("sharePopup").classList.add("open");
+}
+function closeShare() {
+  document.getElementById("shareOverlay").classList.remove("open");
+  document.getElementById("sharePopup").classList.remove("open");
+}
+
+// 获取当前页面 URL 和标题
+function getShareData() {
+  const title = document.title;
+  const url   = window.location.href;
+  return { title, url };
+}
+
+// 微信分享：调用系统分享（移动端会显示微信选项）
+function shareWechat() {
+  if (navigator.share) {
+    const d = getShareData();
+    navigator.share({ title: d.title, text: "🔥 热点聚合 · 实时榜单", url: d.url })
+      .then(() => closeShare())
+      .catch(() => {});
+  } else {
+    shareCopy();
+  }
+}
+
+// QQ 分享：用 tencent:// 协议打开 QQ 分享
+function shareQQ() {
+  const d = getShareData();
+  const url = `https://connect.qq.com/widget/shareqq/index.html?url=${encodeURIComponent(d.url)}&title=${encodeURIComponent(d.title)}&desc=${encodeURIComponent("🔥 热点聚合，实时聚合各大平台热搜")}`;
+  window.open(url, "_blank", "width=640,height=480");
+  closeShare();
+}
+
+// 微博分享：用微博分享 URL schema
+function shareWeibo() {
+  const d = getShareData();
+  const url = `https://service.weibo.com/share/share.php?url=${encodeURIComponent(d.url)}&title=${encodeURIComponent(d.title + " 🔥 热点聚合")}`;
+  window.open(url, "_blank", "width=620,height=450");
+  closeShare();
+}
+
+// 复制链接
+function shareCopy() {
+  const d = getShareData();
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(d.url).then(() => {
+      showToast("✅ 链接已复制到剪贴板");
+      closeShare();
+    }).catch(() => {
+      fallbackCopy(d.url);
+    });
+  } else {
+    fallbackCopy(d.url);
+  }
+}
+function fallbackCopy(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  try { document.execCommand("copy"); showToast("✅ 链接已复制到剪贴板"); }
+  catch(e) { showToast("复制失败，请手动复制地址栏"); }
+  document.body.removeChild(ta);
+  closeShare();
+}
+
+// 系统原生分享（支持 iOS/Android 弹出系统分享面板）
+async function shareNative() {
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: document.title,
+        text: "🔥 热点聚合 · 实时榜单",
+        url: window.location.href,
+      });
+      closeShare();
+      return;
+    } catch(e) {
+      if (e.name === "AbortError") { closeShare(); return; }
+    }
+  }
+  // 不支持 navigator.share，降级到复制
+  shareCopy();
+}
 
 // ════════════════════════════════════════════════════════════
 // 初始化
