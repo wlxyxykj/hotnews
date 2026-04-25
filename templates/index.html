@@ -486,7 +486,7 @@
     </nav>
 
     <div class="header-tools">
-      <button class="icon-btn" id="refreshBtn" onclick="refreshCurrent()">
+      <button class="icon-btn" id="refreshBtn" onclick="refreshCurrent(true)">
         <span class="spin" id="spinIcon">↻</span> 刷新
       </button>
       <button class="icon-btn" id="shareBtn" onclick="openShare()">
@@ -661,7 +661,7 @@ const PLATFORM_META = {
 };
 
 const CATEGORIES = {
-  "综合":     ["weibo","tencent","toutiao","wangyi","sina","rmrb","cctv","xinhua","pengpai","zhihu","bilibili"],
+  "综合":     ["weibo","tencent","toutiao","pengpai","zhihu","bilibili","rmrb","cctv","xinhua"],
   "科技":     ["36kr","huxiu","ifanr","sspai","ithome","github"],
   "娱乐":     ["douban","maoyan","weibo_ent","sina_ent","ifeng_ent"],
   "财经":     ["caixin","yicai","jiemian","wallstreet","xueqiu"],
@@ -675,14 +675,19 @@ const CATEGORIES = {
 let currentCat = "综合";
 let currentPlat = null;     // null = 显示整个分类网格
 let newsCache = {};         // { platformId: { items, is_realtime, fetched_at, update_note } }
+let catCacheMeta = {};      // { categoryId: { fetchTime, failedPlatforms } } 分类级缓存元信息
 let failedPlatforms = [];   // 当前分类失败的平台列表
 let loading = false;
+let loadingCat = null;      // 当前正在加载的分类（用于区分手动/自动刷新）
 let authToken = localStorage.getItem("hn_token") || "";
 let authUser  = JSON.parse(localStorage.getItem("hn_user") || "null");
 let authMode  = "login";
 let favIds    = new Set();    // 已收藏 URL 集合（本地标记）
 let drawerMode = "fav";
 let userMenuOpen = false;
+
+// 缓存有效期：5分钟（毫秒）
+const CACHE_TTL = 5 * 60 * 1000;
 
 // ════════════════════════════════════════════════════════════
 // 工具
@@ -1157,19 +1162,96 @@ function renderFailedSection() {
 // ════════════════════════════════════════════════════════════
 // 数据加载
 // ════════════════════════════════════════════════════════════
-async function refreshCurrent() {
-  if (loading) return;
+
+/**
+ * 检查分类缓存是否有效（5分钟内有效）
+ */
+function isCatCacheValid(cat) {
+  const meta = catCacheMeta[cat];
+  if (!meta) return false;
+  return Date.now() - meta.fetchTime < CACHE_TTL;
+}
+
+/**
+ * 获取当前缓存状态描述
+ */
+function getCacheStatus() {
+  const meta = catCacheMeta[currentCat];
+  if (!meta) return "正在加载...";
+  const elapsed = Math.floor((Date.now() - meta.fetchTime) / 1000);
+  if (elapsed < 60) return `缓存 ${elapsed}秒前`;
+  const mins = Math.floor(elapsed / 60);
+  return `缓存 ${mins}分钟前`;
+}
+
+/**
+ * 刷新当前分类/平台（主入口）
+ * @param {boolean} forceRefresh - 是否强制刷新（用户手动触发）
+ */
+async function refreshCurrent(forceRefresh = false) {
+  // 如果正在加载且不是强制刷新，则跳过
+  if (loading && !forceRefresh) return;
+  
+  // 如果有缓存且非强制刷新，先显示缓存
+  if (!forceRefresh && isCatCacheValid(currentCat)) {
+    // 有缓存：立即渲染，后台静默刷新
+    renderView();
+    updateTimeDisplay();
+    // 后台静默刷新（在后台更新缓存，不阻塞 UI）
+    silentRefresh(currentCat);
+  } else {
+    // 无缓存或强制刷新：显示加载状态
+    loading = true;
+    loadingCat = currentCat;
+    const btn = document.getElementById("refreshBtn");
+    const spin = document.getElementById("spinIcon");
+    if (forceRefresh) {
+      btn.disabled = true; 
+      spin.classList.add("spinning");
+    }
+    document.getElementById("updateTime").textContent = "正在加载...";
+    
+    // 渲染骨架屏
+    renderView();
+    
+    await doFetch(currentCat);
+    
+    loading = false;
+    loadingCat = null;
+    if (forceRefresh) {
+      btn.disabled = false; 
+      spin.classList.remove("spinning");
+    }
+    updateTimeDisplay();
+    renderView();
+  }
+}
+
+/**
+ * 后台静默刷新（不阻塞 UI）
+ */
+async function silentRefresh(cat) {
+  // 标记为后台加载（不显示 loading 状态）
   loading = true;
-  const btn = document.getElementById("refreshBtn");
-  const spin = document.getElementById("spinIcon");
-  btn.disabled = true; spin.classList.add("spinning");
-  document.getElementById("updateTime").textContent = "正在加载...";
+  loadingCat = null;
+  await doFetch(cat);
+  loading = false;
+  // 更新缓存元信息时间
+  if (catCacheMeta[cat]) {
+    catCacheMeta[cat].fetchTime = Date.now();
+  }
+  // 更新显示（如果用户还在当前分类）
+  if (cat === currentCat) {
+    updateTimeDisplay();
+  }
+}
 
-  // 先渲染骨架
-  renderView();
-
-  const plats = currentPlat ? [currentPlat] : (CATEGORIES[currentCat] || []);
-
+/**
+ * 执行实际的 API 调用
+ */
+async function doFetch(cat) {
+  const plats = currentPlat ? [currentPlat] : (CATEGORIES[cat] || []);
+  
   try {
     const ids = plats.join(",");
     const resp = await fetch(`/api/news/batch?platforms=${ids}`);
@@ -1180,19 +1262,37 @@ async function refreshCurrent() {
     const meta = data._meta || {};
     failedPlatforms = meta.failed || [];
 
+    // 更新分类缓存元信息
+    catCacheMeta[cat] = {
+      fetchTime: Date.now(),
+      failedPlatforms: [...failedPlatforms]
+    };
+
     // 只保留数据部分
     const { _meta: _, ...cleanData } = data;
     Object.assign(newsCache, cleanData);
   } catch(e) {
     console.error("加载失败:", e);
-    document.getElementById("updateTime").textContent = "⚠ 加载失败";
-  } finally {
-    renderView();
-    const now = new Date();
-    document.getElementById("updateTime").textContent =
-      `最后刷新：${now.toLocaleTimeString("zh-CN",{hour12:false})}`;
-    loading = false;
-    btn.disabled = false; spin.classList.remove("spinning");
+  }
+}
+
+/**
+ * 更新更新时间显示
+ */
+function updateTimeDisplay() {
+  const el = document.getElementById("updateTime");
+  const meta = catCacheMeta[currentCat];
+  if (!meta) {
+    el.textContent = "正在加载...";
+    return;
+  }
+  
+  const elapsed = Math.floor((Date.now() - meta.fetchTime) / 1000);
+  if (elapsed < 60) {
+    el.textContent = `最后刷新：${elapsed}秒前`;
+  } else {
+    const mins = Math.floor(elapsed / 60);
+    el.textContent = `最后刷新：${mins}分钟前`;
   }
 }
 
@@ -1203,9 +1303,12 @@ setInterval(() => {
   fetch("/api/ping").catch(()=>{});
 }, 4.5 * 60 * 1000);
 
-// 自动刷新（5分钟）
+// 自动后台刷新（每 5 分钟，后台静默更新所有缓存）
 setInterval(() => {
-  if (!loading) refreshCurrent();
+  // 后台静默刷新所有已缓存的分类
+  Object.keys(catCacheMeta).forEach(cat => {
+    silentRefresh(cat);
+  });
 }, 5 * 60 * 1000);
 
 // ════════════════════════════════════════════════════════════

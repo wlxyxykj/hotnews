@@ -4,13 +4,16 @@
 """
 
 import os, time, threading, traceback, hashlib, json, sqlite3
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import concurrent.futures
 
 import requests
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
+
+# 北京时间时区
+BEIJING_TZ = timezone(timedelta(hours=8))
 
 try:
     import jwt as pyjwt
@@ -73,7 +76,12 @@ def set_cache(key, data):
 
 # ─── 工具函数 ──────────────────────────────────────────
 def now_str():
-    return datetime.now().strftime("%H:%M")
+    """返回北京时间 HH:MM 格式"""
+    return datetime.now(BEIJING_TZ).strftime("%H:%M")
+
+def now_full():
+    """返回完整北京时间字符串"""
+    return datetime.now(BEIJING_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 # 更强 headers 池，轮流使用降低被封概率
 HEADERS_POOL = [
@@ -254,12 +262,11 @@ def fetch_toutiao():
     r, _ = safe_fetch("toutiao", _fetch_toutiao)
     return r
 
-# ── 网易新闻（换用新的数据接口）─────────────────────────────
+# ── 网易新闻（真正的热榜接口）─────────────────────────────
 def _fetch_wangyi():
-    # 端点1: 网易新闻热榜 API
+    # 端点1: 网易新闻热搜 JSON 接口
     for url in [
         "https://news.163.com/rank/",
-        "https://www.163.com/newsapi/hot_list/pc/news_hot_list?callback=cb",
     ]:
         try:
             resp = requests.get(url, headers={
@@ -271,9 +278,9 @@ def _fetch_wangyi():
             if resp.status_code == 200 and len(resp.text) > 300:
                 resp.encoding = "utf-8"
                 soup = BeautifulSoup(resp.text, "lxml")
-                # 尝试多种热榜 selector
-                for sel in ["h3 a", ".title a", ".news_title a", ".hot_title a",
-                            "a[href*='163.com/news']", ".item-headline a"]:
+                # 尝试多种热榜 selector（针对 news.163.com/rank/ 页面结构）
+                for sel in [".hot-title a", ".hotlist-title a", ".news_title a",
+                            "h3 a", ".title a", ".item-headline a"]:
                     links = soup.select(sel)[:20]
                     items = []
                     seen = set()
@@ -291,26 +298,79 @@ def _fetch_wangyi():
                         return make_result(items, True, "实时热榜")
         except Exception:
             pass
-    # 端点2: 网易云音乐热评引流（改用财经/新闻 RSS）
+    
+    # 端点2: 网易热搜专用页（temp.163.com 或 news.163.com/special）
     try:
-        resp = requests.get("https://news.163.com/rss/guonei.xml",
-                          headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "zh-CN"}, timeout=8)
-        resp.encoding = "utf-8"
-        soup = BeautifulSoup(resp.text, "lxml")
-        items = [{"rank": i+1, "title": it.find("title").get_text(strip=True),
-                  "url": it.find("link").get_text(strip=True) if it.find("link") else "https://www.163.com/", "hot": ""}
-                 for i, it in enumerate(soup.find_all("item")[:20]) if it.find("title")]
-        if items:
-            return make_result(items, False, "RSS保底·非实时")
+        resp = requests.get("https://news.163.com/special/00804JVA/news_hot_list.js",
+                          headers={
+                              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                              "Referer": "https://news.163.com/",
+                              "Accept": "*/*",
+                          }, timeout=10)
+        if resp.status_code == 200:
+            text = resp.text
+            # 尝试解析 JSONP 回调
+            try:
+                import re
+                # 尝试提取 JSON 数据
+                json_str = text
+                # 有些接口返回的是 define() 包裹的，需要提取
+                match = re.search(r'\((.*?)\)', text, re.DOTALL)
+                if match:
+                    json_str = match.group(1)
+                data = json.loads(json_str)
+                raw = data if isinstance(data, list) else data.get("data", [])
+                items = []
+                for i, item in enumerate(raw[:20], 1):
+                    title = item.get("title", "") or item.get("docTitle", "") or item.get("Keywords", "")
+                    url = item.get("url", "") or item.get("docurl", "")
+                    hot = item.get("hotValue", "") or item.get("hot", "")
+                    if title:
+                        if not url:
+                            url = "https://www.163.com/"
+                        items.append({"rank": i, "title": title, "url": url, "hot": str(hot)})
+                if items:
+                    return make_result(items, True, "实时热榜")
+            except json.JSONDecodeError:
+                pass
     except Exception:
         pass
+    
+    # 端点3: 尝试解析 163.com 主页的热榜区块
+    try:
+        resp = requests.get("https://www.163.com/",
+                          headers={
+                              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                              "Accept-Language": "zh-CN,zh;q=0.9",
+                          }, timeout=10)
+        resp.encoding = "utf-8"
+        soup = BeautifulSoup(resp.text, "lxml")
+        seen = set()
+        items = []
+        # 尝试多种 selector 找热搜条目
+        for sel in [".hot-title a", ".news-title a", ".hotnews a", "a.hot"]:
+            for a in soup.select(sel)[:15]:
+                title = a.get_text(strip=True)
+                href = a.get("href", "")
+                if title and len(title) > 5 and title not in seen:
+                    seen.add(title)
+                    if not href.startswith("http"):
+                        href = "https://www.163.com" + href
+                    items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
+                if len(items) >= 15:
+                    break
+        if len(items) >= 5:
+            return make_result(items, True, "实时热榜")
+    except Exception:
+        pass
+    
     return fail_result("网易（暂不可用）")
 
 def fetch_wangyi():
     r, _ = safe_fetch("wangyi", _fetch_wangyi)
     return r
 
-# ── 新浪新闻（多端点）─────────────────────────────────────
+# ── 新浪新闻（多端点，改进编码处理）──────────────────────────
 def _fetch_sina():
     # 端点1: 新浪新闻 RSS
     for url in [
@@ -322,13 +382,26 @@ def _fetch_sina():
                 "User-Agent": "Mozilla/5.0", "Accept-Language": "zh-CN",
                 "Referer": "https://news.sina.com.cn/"}, timeout=10)
             if resp.status_code == 200:
-                resp.encoding = "utf-8"
-                soup = BeautifulSoup(resp.text, "lxml")
-                items = [{"rank": i+1, "title": it.find("title").get_text(strip=True),
-                          "url": it.find("link").get_text(strip=True) if it.find("link") else "https://news.sina.com.cn/", "hot": ""}
-                         for i, it in enumerate(soup.find_all("item")[:20]) if it.find("title")]
-                if items:
-                    return make_result(items, False, "RSS·非实时")
+                # 尝试多种编码
+                content = resp.content
+                for enc in ["utf-8", "gb2312", "gbk", "gb18030"]:
+                    try:
+                        text = content.decode(enc)
+                        soup = BeautifulSoup(text, "lxml")
+                        items = []
+                        for i, it in enumerate(soup.find_all("item")[:20]):
+                            title_el = it.find("title")
+                            if title_el:
+                                title = title_el.get_text(strip=True)
+                                link_el = it.find("link")
+                                link = link_el.get_text(strip=True) if link_el else "https://news.sina.com.cn/"
+                                if title:
+                                    items.append({"rank": i+1, "title": title, "url": link, "hot": ""})
+                        if items:
+                            return make_result(items, False, "RSS·非实时")
+                        break  # 成功解析但没数据，也跳出
+                    except (UnicodeDecodeError, LookupError):
+                        continue
         except Exception:
             pass
     # 端点2: 新浪新闻首页
@@ -336,20 +409,30 @@ def _fetch_sina():
         resp = requests.get("https://news.sina.com.cn/",
                           headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                                    "Accept-Language": "zh-CN"}, timeout=10)
-        soup = BeautifulSoup(resp.text, "lxml")
-        seen = set()
-        items = []
-        for a in soup.select("h1 a, h2 a, .news-title a, a[href*='sina.com.cn']"):
-            title = a.get_text(strip=True)
-            href  = a.get("href","")
-            if (title and len(title) > 8 and title not in seen
-                    and ("sina.com.cn" in href or href.startswith("/news"))):
-                seen.add(title)
-                if not href.startswith("http"):
-                    href = "https://news.sina.com.cn" + href
-                items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
-        if items:
-            return make_result(items, True, "实时新闻")
+        content = resp.content
+        # 尝试多种编码解析
+        text = None
+        for enc in ["utf-8", "gbk", "gb2312", "gb18030"]:
+            try:
+                text = content.decode(enc)
+                break
+            except (UnicodeDecodeError, LookupError):
+                continue
+        if text:
+            soup = BeautifulSoup(text, "lxml")
+            seen = set()
+            items = []
+            for a in soup.select("h1 a, h2 a, .news-title a, a[href*='sina.com.cn']"):
+                title = a.get_text(strip=True)
+                href  = a.get("href","")
+                if (title and len(title) > 8 and title not in seen
+                        and ("sina.com.cn" in href or href.startswith("/news"))):
+                    seen.add(title)
+                    if not href.startswith("http"):
+                        href = "https://news.sina.com.cn" + href
+                    items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
+            if items:
+                return make_result(items, True, "实时新闻")
     except Exception:
         pass
     return fail_result("新浪新闻（暂不可用）")
@@ -1056,7 +1139,7 @@ FETCHERS = {
 }
 
 CATEGORIES = {
-    "综合":    ["weibo","tencent","toutiao","wangyi","sina","rmrb","cctv","xinhua","pengpai","zhihu","bilibili"],
+    "综合":    ["weibo","tencent","toutiao","pengpai","zhihu","bilibili","rmrb","cctv","xinhua"],
     "科技":    ["36kr","huxiu","ifanr","sspai","ithome","github"],
     "娱乐":    ["douban","maoyan","weibo_ent","sina_ent","ifeng_ent"],
     "财经":    ["caixin","yicai","jiemian","wallstreet","xueqiu"],
@@ -1145,7 +1228,7 @@ def get_platforms():
 
 @app.route("/api/ping")
 def ping():
-    return jsonify({"ok": True, "ts": now_str()})
+    return jsonify({"ok": True, "ts": now_str(), "server_time": now_full()})
 
 # ─── 用户认证接口 ─────────────────────────────────────────────
 
