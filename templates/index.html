@@ -1226,12 +1226,12 @@ async function refreshCurrent(forceRefresh = false) {
     // 渲染骨架屏
     renderView();
     
-    await doFetch(currentCat);
-    
+    await doFetch(currentCat, forceRefresh);
+
     loading = false;
     loadingCat = null;
     if (forceRefresh) {
-      btn.disabled = false; 
+      btn.disabled = false;
       spin.classList.remove("spinning");
     }
     updateTimeDisplay();
@@ -1243,10 +1243,10 @@ async function refreshCurrent(forceRefresh = false) {
  * 后台静默刷新（不阻塞 UI）
  */
 async function silentRefresh(cat) {
-  // 标记为后台加载（不显示 loading 状态）
+  // 后台静默刷新：不传 refresh=1，读缓存优先
   loading = true;
   loadingCat = null;
-  await doFetch(cat);
+  await doFetch(cat, false);
   loading = false;
   // 更新缓存元信息时间
   if (catCacheMeta[cat]) {
@@ -1261,12 +1261,13 @@ async function silentRefresh(cat) {
 /**
  * 执行实际的 API 调用
  */
-async function doFetch(cat) {
+async function doFetch(cat, forceRefresh = false) {
   const plats = currentPlat ? [currentPlat] : (CATEGORIES[cat] || []);
-  
+
   try {
     const ids = plats.join(",");
-    const resp = await fetch(`/api/news/batch?platforms=${ids}`);
+    const refreshParam = forceRefresh ? "&refresh=1" : "";
+    const resp = await fetch(`/api/news/batch?platforms=${ids}${refreshParam}`);
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     const data = await resp.json();
 
@@ -1277,7 +1278,8 @@ async function doFetch(cat) {
     // 更新分类缓存元信息
     catCacheMeta[cat] = {
       fetchTime: Date.now(),
-      failedPlatforms: [...failedPlatforms]
+      failedPlatforms: [...failedPlatforms],
+      cached: meta.cached !== false,
     };
 
     // 只保留数据部分
@@ -1298,14 +1300,11 @@ function updateTimeDisplay() {
     el.textContent = "正在加载...";
     return;
   }
-  
+
   const elapsed = Math.floor((Date.now() - meta.fetchTime) / 1000);
-  if (elapsed < 60) {
-    el.textContent = `最后刷新：${elapsed}秒前`;
-  } else {
-    const mins = Math.floor(elapsed / 60);
-    el.textContent = `最后刷新：${mins}分钟前`;
-  }
+  const timeStr = elapsed < 60 ? `${elapsed}秒前` : `${Math.floor(elapsed / 60)}分钟前`;
+  const cacheTag = meta.cached ? "📦缓存" : "🔄实时";
+  el.textContent = `${cacheTag} · ${timeStr}`;
 }
 
 // ════════════════════════════════════════════════════════════

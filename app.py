@@ -1418,6 +1418,98 @@ PLATFORM_NAMES = {
     "hupu": "虎扑", "dongqiudi": "懂球帝", "cctv_sports": "央视体育",
 }
 
+# 底层抓取函数映射（跳过缓存，供后台刷新线程使用）
+RAW_FETCHERS = {
+    "weibo":       _fetch_weibo,
+    "tencent":     _fetch_tencent,
+    "toutiao":     _fetch_toutiao,
+    "wangyi":      _fetch_wangyi,
+    "sina":        _fetch_sina,
+    "rmrb":        _fetch_rmrb,
+    "cctv":        _fetch_cctv,
+    "xinhua":      _fetch_xinhua,
+    "pengpai":     _fetch_pengpai,
+    "zhihu":       _fetch_zhihu,
+    "bilibili":    _fetch_bilibili,
+    "36kr":        fetch_36kr,
+    "huxiu":       fetch_huxiu,
+    "ifanr":       fetch_ifanr,
+    "sspai":       fetch_sspai,
+    "ithome":      fetch_ithome,
+    "github":      _fetch_github,
+    "douban":      _fetch_douban,
+    "maoyan":      _fetch_maoyan,
+    "weibo_ent":   _fetch_weibo_ent,
+    "sina_ent":    _fetch_sina_ent,
+    "ifeng_ent":   _fetch_ifeng_ent,
+    "caixin":      _fetch_caixin,
+    "yicai":       _fetch_yicai,
+    "jiemian":     _fetch_jiemian,
+    "wallstreet":  _fetch_wallstreet,
+    "xueqiu":      _fetch_xueqiu,
+    "guancha":     _fetch_guancha,
+    "huanqiu":     _fetch_huanqiu,
+    "cankaoxiaoxi": _fetch_cankaoxiaoxi,
+    "hupu":        _fetch_hupu,
+    "dongqiudi":   _fetch_dongqiudi,
+    "cctv_sports": _fetch_cctv_sports,
+}
+
+# ─── 后台定时刷新 ─────────────────────────────────────────────
+REFRESH_INTERVAL = int(os.environ.get("REFRESH_INTERVAL", "300"))  # 默认 5 分钟
+
+_bg_refresh_running = False
+
+def force_refresh_platform(pid):
+    """强制刷新单个平台（跳过缓存，直接调用底层抓取函数）"""
+    raw_fn = RAW_FETCHERS.get(pid)
+    if not raw_fn:
+        return
+    try:
+        result = raw_fn()
+        if result and result.get("status") == "success" and result.get("items"):
+            set_cache(pid, result)
+    except Exception:
+        pass
+
+def refresh_all_platforms():
+    """后台刷新所有平台（分批并行，避免同时打太多请求）"""
+    all_pids = list(RAW_FETCHERS.keys())
+    batch_size = 8
+    for i in range(0, len(all_pids), batch_size):
+        batch = all_pids[i:i+batch_size]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(batch)) as executor:
+            futures = {executor.submit(force_refresh_platform, pid): pid for pid in batch}
+            try:
+                for future in concurrent.futures.as_completed(futures, timeout=60):
+                    try:
+                        future.result()
+                    except Exception:
+                        pass
+            except concurrent.futures.TimeoutError:
+                # 超时的任务不管了，下一轮再试
+                pass
+
+def start_background_refresh():
+    """启动后台定时刷新线程（每个 gunicorn worker 调用一次）"""
+    global _bg_refresh_running
+    if _bg_refresh_running:
+        return
+    _bg_refresh_running = True
+
+    def _loop():
+        # 启动后先等 30 秒再开始第一次刷新（等 worker 完全就绪）
+        time.sleep(30)
+        while True:
+            try:
+                refresh_all_platforms()
+            except Exception:
+                traceback.print_exc()
+            time.sleep(REFRESH_INTERVAL)
+
+    t = threading.Thread(target=_loop, daemon=True)
+    t.start()
+
 # ─── 路由 ─────────────────────────────────────────────────────
 
 @app.route("/")
@@ -1436,6 +1528,7 @@ def get_news(platform):
 def get_batch():
     category   = request.args.get("category", "")
     platforms  = request.args.get("platforms", "")
+    force      = request.args.get("refresh", "0") == "1"
 
     if category and category in CATEGORIES:
         ids = CATEGORIES[category]
@@ -1447,13 +1540,18 @@ def get_batch():
     result      = {}
     failed_list = []
 
+    # 强制刷新模式：跳过缓存，直接调底层抓取函数
+    fetcher_map = RAW_FETCHERS if force else FETCHERS
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(ids), 10)) as executor:
-        futures = {executor.submit(FETCHERS[pid]): pid for pid in ids}
+        futures = {executor.submit(fetcher_map[pid]): pid for pid in ids if pid in fetcher_map}
         try:
             for future in concurrent.futures.as_completed(futures, timeout=60):
                 pid = futures.pop(future)
                 try:
                     data = future.result()
+                    if force and data and data.get("status") == "success" and data.get("items"):
+                        set_cache(pid, data)
                     result[pid] = data
                     if data.get("status") == "failed" or not data.get("items"):
                         failed_list.append({
@@ -1469,9 +1567,10 @@ def get_batch():
                         "note": fail_result().get("update_note"),
                     })
         except concurrent.futures.TimeoutError:
-            # 超时未完成的任务标记为失败
             for pid in futures.values():
-                result[pid] = fail_result("请求超时")
+                r = fail_result("请求超时")
+                set_cache(pid, r)
+                result[pid] = r
                 failed_list.append({
                     "platform": pid,
                     "name": PLATFORM_NAMES.get(pid, pid),
@@ -1482,6 +1581,8 @@ def get_batch():
         "failed": failed_list,
         "failed_count": len(failed_list),
         "total_count": len(ids),
+        "cached": not force,
+        "last_refresh": now_str(),
     }})
 
 @app.route("/api/categories")
@@ -1496,6 +1597,30 @@ def get_platforms():
 @app.route("/api/ping")
 def ping():
     return jsonify({"ok": True, "ts": now_str(), "server_time": now_full()})
+
+@app.route("/api/refresh")
+def trigger_refresh():
+    """手动触发全平台刷新（异步执行，立即返回）"""
+    category = request.args.get("category", "")
+    if category and category in CATEGORIES:
+        pids = CATEGORIES[category]
+    else:
+        pids = list(RAW_FETCHERS.keys())
+
+    def _refresh_batch():
+        for i in range(0, len(pids), 8):
+            batch = pids[i:i+8]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(batch)) as executor:
+                futures = {executor.submit(force_refresh_platform, pid): pid for pid in batch}
+                for future in concurrent.futures.as_completed(futures, timeout=45):
+                    try:
+                        future.result()
+                    except Exception:
+                        pass
+
+    t = threading.Thread(target=_refresh_batch, daemon=True)
+    t.start()
+    return jsonify({"ok": True, "refreshing": len(pids), "ts": now_str()})
 
 # ─── 用户认证接口 ─────────────────────────────────────────────
 
@@ -1641,11 +1766,16 @@ def clear_history():
     return jsonify({"ok": True})
 
 # ─── 启动 ─────────────────────────────────────────────────────
+# ─── 启动时立即开启后台刷新 ────────────────────────────────
+# gunicorn 环境下每个 worker 都会执行此模块，需要各自启动刷新线程
+start_background_refresh()
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     print("=" * 60)
-    print("  热点聚合 v2.2 已启动")
+    print("  热点聚合 v2.3 已启动")
     print(f"  访问地址: http://127.0.0.1:{port}")
     print(f"  平台数量: {len(FETCHERS)} 个")
+    print(f"  后台刷新: 每 {REFRESH_INTERVAL}s 自动更新缓存")
     print("=" * 60)
     app.run(debug=False, host="0.0.0.0", port=port)
