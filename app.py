@@ -97,9 +97,9 @@ def _get_session():
         with _session_lock:
             if _session is None:
                 _session = requests.Session()
-                # 代理：通过 HTTP_PROXY / HTTPS_PROXY 环境变量配置
-                # 例如：HTTP_PROXY=http://127.0.0.1:7890
-                proxy_url = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+                # 代理：通过 SCRAPE_PROXY 环境变量配置（避免影响 pip install）
+                # 例如：SCRAPE_PROXY=http://127.0.0.1:7890
+                proxy_url = os.environ.get("SCRAPE_PROXY", "")
                 if proxy_url:
                     _session.proxies = {"http": proxy_url, "https": proxy_url}
                 # 连接池：最多 20 个连接
