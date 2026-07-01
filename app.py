@@ -134,6 +134,15 @@ _USER_AGENTS = [
 def _random_ua():
     return random.choice(_USER_AGENTS)
 
+def _looks_decoded(data: bytes) -> bool:
+    """粗判响应体是否已是明文（已解压）。br 压缩流首字节通常不在可打印 ASCII 范围。"""
+    if not data:
+        return True
+    first = data[:16]
+    # 明文 HTML/XML/JSON 通常以 < ? { [ 或空白开头
+    return any(first.startswith(p) for p in (b"<", b"<?", b"<!", b"{", b"[", b"<!DOC", b"\xef\xbb\xbf")) \
+        or first.lstrip()[:1] in (b"<", b"{", b"[")
+
 def http_get(url, timeout=15, referer=None, accept="text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", parse_json=False, raw_bytes=False):
     """
     统一的 HTTP GET 请求，带重试、随机 UA、连接池复用。
@@ -154,6 +163,16 @@ def http_get(url, timeout=15, referer=None, accept="text/html,application/xhtml+
     try:
         resp = session.get(url, headers=h, timeout=timeout)
         if resp.status_code == 200:
+            # 防御性 br 解压兜底：requests 仅在装了 brotli/brotlicffi 时自动解 brotli。
+            # 部分服务器无视 Accept-Encoding 强制返回 br，这里手动补一刀，避免后续拿到压缩乱码。
+            ce = resp.headers.get("Content-Encoding", "").lower()
+            if ce == "br" and not _looks_decoded(resp.content):
+                try:
+                    import brotli as _brotli
+                    resp._content = _brotli.decompress(resp.content)
+                    resp.headers["Content-Encoding"] = "identity"
+                except Exception:
+                    pass
             if parse_json:
                 try:
                     return resp.json(), None
@@ -165,12 +184,30 @@ def http_get(url, timeout=15, referer=None, accept="text/html,application/xhtml+
             if resp.encoding and resp.encoding.lower() != "iso-8859-1":
                 pass  # requests 已自动检测到正确编码
             else:
-                # 尝试中文编码
-                for enc in ["utf-8", "gbk", "gb2312", "gb18030"]:
+                # requests 未识别编码（默认 iso-8859-1），手动探测
+                # 优先级：HTML meta charset → 尝试常见中文编码（容错解码）
+                head = resp.content[:1024]
+                meta_enc = None
+                import re as _re
+                m = _re.search(rb'charset=["\']?([\w-]+)', head, _re.I)
+                if m:
+                    meta_enc = m.group(1).decode("ascii", "ignore").lower()
+                # 候选编码顺序：meta 声明优先，然后 utf-8 / gbk 系
+                candidates = []
+                for e in (meta_enc, "utf-8", "gb18030", "gbk", "gb2312"):
+                    if e and e not in candidates and e != "iso-8859-1":
+                        candidates.append(e)
+                for enc in candidates:
                     try:
-                        resp.content.decode(enc)
-                        resp.encoding = enc
-                        break
+                        # 用 errors=ignore 容错：部分页面存在少量脏字节（如新浪首页），
+                        # 严格 decode 会整体失败，但绝大多数字节仍是合法的。
+                        sample = resp.content[:4096].decode(enc, "ignore")
+                        # 简单校验：解码后应含中文字符或常见 HTML 标记
+                        if sample.count("\ufffd") < 20 or enc == candidates[0]:
+                            resp.encoding = enc
+                            # 给 requests 打补丁：让其 text 也走容错解码
+                            resp._content = resp.content.decode(enc, "ignore").encode(enc, "ignore")
+                            break
                     except (UnicodeDecodeError, LookupError):
                         continue
             return resp, None
@@ -272,55 +309,27 @@ def fetch_tencent():
 
 # ── 今日头条（多端点回退）──────────────────────────────────
 def _fetch_toutiao():
-    # 端点1: 头条热榜页面
-    resp, err = http_get(
-        "https://www.toutiao.com/hot-list/hot-search/",
-        referer="https://www.toutiao.com/", timeout=15
+    # 端点1: 头条热榜 JSON API（实测可用，无需鉴权）
+    data, err = http_get(
+        "https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc",
+        referer="https://www.toutiao.com/", parse_json=True, timeout=12
     )
-    if not err:
-        soup = BeautifulSoup(resp.text, "lxml")
-        seen = set()
+    if not err and data:
+        raw = data.get("data", []) or []
         items = []
-        for sel in [
-            ".article-title a", "h3 a", ".hot-title a",
-            ".trending-title a", ".feed-card-title a",
-            "a[href*='toutiao.com']", ".item-title a",
-        ]:
-            if len(items) >= 20:
-                break
-            for a in soup.select(sel)[:30]:
-                title = a.get_text(strip=True)
-                href = a.get("href", "")
-                if title and len(title) > 5 and title not in seen:
-                    seen.add(title)
-                    if not href.startswith("http"):
-                        href = "https://www.toutiao.com" + href
-                    items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
-                if len(items) >= 20:
-                    break
-        if len(items) >= 5:
-            return make_result(items, True, "实时热点")
-
-    # 端点2: 头条主页
-    resp, err = http_get("https://www.toutiao.com/", referer="https://www.toutiao.com/", timeout=15)
-    if not err:
-        soup = BeautifulSoup(resp.text, "lxml")
-        seen = set()
-        items = []
-        for a in soup.select("h3 a, .article-title a, a[href*='/i']")[:25]:
-            title = a.get_text(strip=True)
-            href = a.get("href", "")
-            if title and len(title) > 5 and title not in seen:
-                seen.add(title)
-                if not href.startswith("http"):
-                    href = "https://www.toutiao.com" + href
-                items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
-            if len(items) >= 20:
-                break
+        for i, it in enumerate(raw[:20], 1):
+            title = it.get("Title", "") or it.get("title", "")
+            url = it.get("Url", "") or it.get("url", "")
+            hot = it.get("HotValue", "") or it.get("hot_value", "")
+            if hot and str(hot).isdigit():
+                hot = f"{int(hot)//10000}万"
+            if title:
+                items.append({"rank": i, "title": title,
+                              "url": url or "https://www.toutiao.com/",
+                              "hot": str(hot)})
         if items:
-            return make_result(items, True, "实时热点")
-
-    # 端点3: 第三方热榜镜像
+            return make_result(items, True, "实时热榜")
+    # 端点2: 第三方热榜镜像
     data, err = http_get(
         "https://tcmarket.cdn.bceutils.com/hot-list/toutiao-hot-search.json",
         accept="application/json", parse_json=True, timeout=12
@@ -332,24 +341,6 @@ def _fetch_toutiao():
                  for i, it in enumerate(raw[:20]) if it.get("title")]
         if items:
             return make_result(items, True, "实时热点")
-
-    # 端点4: 头条移动端 API（海外可能可访问）
-    data, err = http_get(
-        "https://m.toutiao.com/hot-board/api/board?board_type=hot",
-        referer="https://m.toutiao.com/", parse_json=True, timeout=12
-    )
-    if not err and data:
-        raw = data.get("data", {}).get("board_items", []) or data.get("data", [])
-        items = []
-        for i, item in enumerate(raw[:20], 1):
-            title = item.get("title", "") or item.get("word", "")
-            url = item.get("url", "") or item.get("share_url", "")
-            hot = str(item.get("hot_value", "") or item.get("score", ""))
-            if title:
-                items.append({"rank": i, "title": title, "url": url or "https://www.toutiao.com/", "hot": hot})
-        if items:
-            return make_result(items, True, "实时热点")
-
     return fail_result("今日头条（暂不可用）")
 
 def fetch_toutiao():
@@ -358,7 +349,30 @@ def fetch_toutiao():
 
 # ── 网易新闻（多端点回退）─────────────────────────────────
 def _fetch_wangyi():
-    # 端点1: 网易新闻排行榜
+    # 端点1: 网易 3g 触屏版 JSONP 接口（实测稳定，无需鉴权）
+    import re
+    resp, err = http_get(
+        "https://3g.163.com/touch/reconstruct/article/list/BBM54PGAwangning/0-20.html",
+        referer="https://news.163.com/", timeout=12
+    )
+    if not err:
+        try:
+            m = re.search(r"artiList\((.*)\)", resp.text, re.DOTALL)
+            data = json.loads(m.group(1)) if m else {}
+            raw = list(data.values())[0] if data else []
+            items = []
+            for i, it in enumerate(raw[:20], 1):
+                title = it.get("title", "")
+                docid = it.get("docid", "")
+                url = it.get("url", "") or (f"https://m.163.com/news/article/{docid}.html" if docid else "https://news.163.com/")
+                if title:
+                    items.append({"rank": i, "title": title, "url": url, "hot": ""})
+            if items:
+                return make_result(items, True, "实时要闻")
+        except (json.JSONDecodeError, AttributeError, IndexError):
+            pass
+
+    # 端点2: 网易新闻排行榜 HTML 兜底
     resp, err = http_get("https://news.163.com/rank/", referer="https://www.163.com/", timeout=15)
     if not err and len(resp.text) > 300:
         soup = BeautifulSoup(resp.text, "lxml")
@@ -370,59 +384,15 @@ def _fetch_wangyi():
             for i, a in enumerate(links, 1):
                 title = a.get_text(strip=True)
                 href  = a.get("href", "")
-                if title and len(title) > 4 and title not in seen:
+                if title and len(title) > 6 and title not in seen:
                     seen.add(title)
                     if not href.startswith("http"):
                         href = "https://www.163.com" + href
                     items.append({"rank": i, "title": title, "url": href, "hot": ""})
                     if len(items) >= 20:
                         break
-            if items:
+            if len(items) >= 5:
                 return make_result(items, True, "实时热榜")
-
-    # 端点2: 网易热搜 JS 数据
-    resp, err = http_get(
-        "https://news.163.com/special/00804JVA/news_hot_list.js",
-        referer="https://news.163.com/", accept="*/*", timeout=12
-    )
-    if not err:
-        import re
-        try:
-            match = re.search(r'\((.*?)\)', resp.text, re.DOTALL)
-            json_str = match.group(1) if match else resp.text
-            data = json.loads(json_str)
-            raw = data if isinstance(data, list) else data.get("data", [])
-            items = []
-            for i, item in enumerate(raw[:20], 1):
-                title = item.get("title", "") or item.get("docTitle", "") or item.get("Keywords", "")
-                url = item.get("url", "") or item.get("docurl", "")
-                hot = item.get("hotValue", "") or item.get("hot", "")
-                if title:
-                    items.append({"rank": i, "title": title, "url": url or "https://www.163.com/", "hot": str(hot)})
-            if items:
-                return make_result(items, True, "实时热榜")
-        except (json.JSONDecodeError, AttributeError):
-            pass
-
-    # 端点3: 163.com 首页热榜
-    resp, err = http_get("https://www.163.com/", referer="https://www.163.com/", timeout=15)
-    if not err:
-        soup = BeautifulSoup(resp.text, "lxml")
-        seen = set()
-        items = []
-        for sel in [".hot-title a", ".news-title a", ".hotnews a", "a.hot"]:
-            for a in soup.select(sel)[:15]:
-                title = a.get_text(strip=True)
-                href = a.get("href", "")
-                if title and len(title) > 5 and title not in seen:
-                    seen.add(title)
-                    if not href.startswith("http"):
-                        href = "https://www.163.com" + href
-                    items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
-                if len(items) >= 15:
-                    break
-        if len(items) >= 5:
-            return make_result(items, True, "实时热榜")
 
     return fail_result("网易（暂不可用）")
 
@@ -458,23 +428,33 @@ def _fetch_sina():
                 except (UnicodeDecodeError, LookupError):
                     continue
 
-    # 端点2: 新浪新闻首页
-    resp, err = http_get("https://news.sina.com.cn/", referer="https://news.sina.com.cn/", timeout=15)
-    if not err:
+    # 端点2: 新浪新闻首页 + 移动端兜底（新浪 PC 端偶发限流，移动端更稳）
+    for page_url in ["https://news.sina.com.cn/", "https://news.sina.cn/"]:
+        resp, err = http_get(page_url, referer="https://news.sina.com.cn/", timeout=15)
+        if err:
+            continue
         soup = BeautifulSoup(resp.text, "lxml")
         seen = set()
         items = []
-        for a in soup.select("h1 a, h2 a, .news-title a, a[href*='sina.com.cn']"):
-            title = a.get_text(strip=True)
-            href  = a.get("href","")
-            if (title and len(title) > 8 and title not in seen
-                    and ("sina.com.cn" in href or href.startswith("/news"))):
-                seen.add(title)
-                if not href.startswith("http"):
-                    href = "https://news.sina.com.cn" + href
-                items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
-        if items:
-            return make_result(items, True, "实时新闻")
+        # 新浪首页：新闻链接分布在 a.news-item / .news-title / 含 doc-id 的链接
+        for sel in ["a.news-title", ".news-title a", "h1 a", "h2 a",
+                    "a[href*='doc-']", "a[href*='sina.cn']",
+                    ".a-news a", ".cont-title a"]:
+            for a in soup.select(sel)[:30]:
+                title = a.get_text(strip=True)
+                href = a.get("href", "")
+                if (title and 8 < len(title) < 60 and title not in seen
+                        and ("sina" in href or href.startswith("/news"))):
+                    seen.add(title)
+                    if not href.startswith("http"):
+                        href = "https://news.sina.com.cn" + href
+                    items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
+                if len(items) >= 20:
+                    break
+            if len(items) >= 20:
+                break
+        if len(items) >= 5:
+            return make_result(items[:20], True, "实时新闻")
     return fail_result("新浪新闻（暂不可用）")
 
 def fetch_sina():
@@ -500,22 +480,15 @@ def fetch_rmrb():
 
 # ── 央视新闻 ─────────────────────────────────────────────
 def _fetch_cctv():
-    # 多端点尝试
-    for url in [
-        "https://news.cctv.com/rss/china.xml",
-        "http://news.cctv.com/rss/china.xml",
-        "https://news.cctv.com/rss/world.xml",
-    ]:
-        resp, err = http_get(url, referer="https://news.cctv.com/", timeout=15)
-        if not err:
-            soup = BeautifulSoup(resp.text, "xml")
-            items = [{"rank": i+1, "title": it.find("title").get_text(strip=True),
-                      "url": it.find("link").get_text(strip=True) if it.find("link") else "https://news.cctv.com/",
-                      "hot": ""}
-                     for i, it in enumerate(soup.find_all("item")[:20]) if it.find("title")]
-            if items:
-                return make_result(items, False, "RSS·非实时更新")
-    return fail_result("央视新闻（暂不可用）")
+    # RSS 端点已下线，改抓新闻频道首页 HTML（实测编码兜底生效，可正确解析中文）
+    return _html_list(
+        "https://news.cctv.com/", "https://news.cctv.com/",
+        selectors=[".title a", "h3 a", ".news-title a", ".lbd_img a",
+                   ".cetitle a", ".word a", "ul.news-list a",
+                   ".tl_main a", ".cbox a", "a[href*='/202']"],
+        host_filter="cctv.com", abs_host="https://news.cctv.com",
+        note="实时新闻",
+    )
 
 def fetch_cctv():
     r, _ = safe_fetch("cctv", _fetch_cctv)
@@ -523,21 +496,18 @@ def fetch_cctv():
 
 # ── 新华社 ───────────────────────────────────────────────
 def _fetch_xinhua():
-    for url in [
-        "https://www.news.cn/rss/politics.xml",
-        "http://www.news.cn/rss/politics.xml",
-        "https://www.news.cn/rss/world.xml",
-        "http://www.xinhuanet.com/rss/politics.xml",
-    ]:
-        resp, err = http_get(url, referer="https://www.news.cn/", timeout=15)
-        if not err:
-            soup = BeautifulSoup(resp.text, "xml")
-            items = [{"rank": i+1, "title": it.find("title").get_text(strip=True),
-                      "url": it.find("link").get_text(strip=True) if it.find("link") else "https://www.news.cn/",
-                      "hot": ""}
-                     for i, it in enumerate(soup.find_all("item")[:20]) if it.find("title")]
-            if items:
-                return make_result(items, False, "RSS·非实时更新")
+    # RSS 已下线，改抓新华网世界频道 + 时政频道 HTML
+    for page_url in ["https://www.news.cn/world/", "https://www.news.cn/politics/"]:
+        r = _html_list(
+            page_url, "https://www.news.cn/",
+            selectors=["h3 a", ".news-title a", ".tit a", ".news a",
+                       "a[href*='/news.cn/']", ".partList a", ".dataList a",
+                       ".domPC_a a", "div.news a"],
+            host_filter="news.cn", abs_host="https://www.news.cn",
+            note="实时新闻",
+        )
+        if r.get("items"):
+            return r
     return fail_result("新华社（暂不可用）")
 
 def fetch_xinhua():
@@ -546,64 +516,46 @@ def fetch_xinhua():
 
 # ── 澎湃新闻（多端点回退）─────────────────────────────────
 def _fetch_pengpai():
-    # 端点1: 澎湃 API（多个 channel 尝试）
-    for channel in ["要闻", "精选", "时事"]:
-        data, err = http_get(
-            f"https://api.thepaper.cn/v2/list/news?channel={channel}&limit=20&page=1",
-            referer="https://www.thepaper.cn/", parse_json=True, timeout=15
-        )
-        if not err and data:
-            raw = data.get("data", {}).get("list", []) or data.get("list", []) or data.get("stories", [])
-            items = [{"rank": i+1, "title": it.get("title",""),
-                      "url": it.get("url","") or f"https://www.thepaper.cn/detail/{it.get('id','')}",
-                      "hot": ""}
-                     for i, it in enumerate(raw[:20]) if it.get("title")]
-            if items:
-                return make_result(items, True, "实时要闻")
-
-    # 端点2: 澎湃旧版 API
+    # 端点1: 澎湃首页右侧栏 cache API（实测可用，含 hotNews 热榜）
     data, err = http_get(
-        "https://www.thepaper.cn/www/api/hotNews.jsp?limit=20",
+        "https://cache.thepaper.cn/contentapi/wwwIndex/rightSidebar",
         referer="https://www.thepaper.cn/", parse_json=True, timeout=15
     )
     if not err and data:
-        raw = data if isinstance(data, list) else data.get("data", []) or data.get("list", [])
-        items = [{"rank": i+1, "title": it.get("title","") or it.get("name",""),
-                  "url": it.get("url","") or f"https://www.thepaper.cn/detail/{it.get('id','')}",
-                  "hot": ""}
-                 for i, it in enumerate(raw[:20]) if it.get("title") or it.get("name")]
+        d = data.get("data", {}) or {}
+        raw = (d.get("hotNews", []) or d.get("editorHandpicked", [])
+               or d.get("morningEveningNews", []))
+        items = []
+        for i, it in enumerate(raw[:20], 1):
+            title = it.get("name", "") or it.get("title", "")
+            cont_id = it.get("contId", "") or it.get("nodeId", "")
+            if title:
+                link = it.get("link", "") or (f"https://www.thepaper.cn/newsDetail_detail_{cont_id}" if cont_id else "https://www.thepaper.cn/")
+                praise = it.get("praiseTimes", "")
+                hot = f"{praise}" if praise else ""
+                items.append({"rank": i, "title": title, "url": link, "hot": str(hot)})
         if items:
-            return make_result(items, True, "实时要闻")
-
-    # 端点3: 澎湃列表页 HTML
-    for page_url in [
-        "https://www.thepaper.cn/list/25433",
-        "https://www.thepaper.cn/",
-    ]:
-        resp, err = http_get(page_url, referer="https://www.thepaper.cn/", timeout=15)
-        if not err:
-            soup = BeautifulSoup(resp.text, "lxml")
-            seen = set()
-            items = []
-            for sel in [
-                ".news_title a", ".article_title a", ".index_title a",
-                ".con a", ".txt a", ".item-title a", ".feed-title a",
-                "h2 a", "h3 a", ".n-title a", ".card-title a",
-                "a[href*='thepaper.cn/']",
-            ]:
-                if len(items) >= 20:
-                    break
-                for a in soup.select(sel)[:30]:
-                    title = a.get_text(strip=True)
-                    href  = a.get("href", "")
-                    if (title and len(title) > 8 and title not in seen
-                            and ("thepaper" in href or href.startswith("/"))):
-                        seen.add(title)
-                        if not href.startswith("http"):
-                            href = "https://www.thepaper.cn" + href
-                        items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
-            if len(items) >= 5:
-                return make_result(items[:20], True, "实时要闻")
+            return make_result(items, True, "实时热闻")
+    # 端点2: 澎湃首页 HTML 兜底
+    resp, err = http_get("https://www.thepaper.cn/", referer="https://www.thepaper.cn/", timeout=15)
+    if not err:
+        soup = BeautifulSoup(resp.text, "lxml")
+        seen = set()
+        items = []
+        for sel in [".news_title a", ".article_title a", ".index_title a",
+                    ".feed-title a", "h2 a", "h3 a", "a[href*='thepaper.cn/newsDetail']"]:
+            if len(items) >= 20:
+                break
+            for a in soup.select(sel)[:30]:
+                title = a.get_text(strip=True)
+                href = a.get("href", "")
+                if title and len(title) > 8 and title not in seen:
+                    seen.add(title)
+                    if not href.startswith("http"):
+                        href = "https://www.thepaper.cn" + href
+                    items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
+        if len(items) >= 5:
+            return make_result(items[:20], True, "实时要闻")
     return fail_result("澎湃新闻（暂不可用）")
 
 def fetch_pengpai():
@@ -683,25 +635,109 @@ def fetch_zhihu():
     r, _ = safe_fetch("zhihu", _fetch_zhihu)
     return r
 
-# ── B站排行榜（强可靠）───────────────────────────────────
+# ── B站排行榜（多端点回退，规避偶发限流）──────────────────
 def _fetch_bilibili():
+    def _parse_list(raw, note="实时榜单"):
+        items = []
+        for i, item in enumerate(raw[:20], 1):
+            view = item.get("stat", {}).get("view", 0)
+            bvid = item.get("bvid", "")
+            items.append({"rank": i, "title": item.get("title", ""),
+                          "url": f"https://www.bilibili.com/video/{bvid}" if bvid else "https://www.bilibili.com/",
+                          "hot": f"{int(view)//10000}万播放" if view else ""})
+        return make_result(items, True, note) if items else None
+
+    # 端点1: 全站排行榜（首选，含播放量）
     data, err = http_get(
-        "https://api.bilibili.com/x/web-interface/ranking/v2",
-        referer="https://www.bilibili.com/", parse_json=True, timeout=12
+        "https://api.bilibili.com/x/web-interface/ranking/v2?rid=0&type=all",
+        referer="https://www.bilibili.com/", parse_json=True, timeout=10
     )
-    if err:
-        return fail_result(f"B站（{err}）")
-    raw = data.get("data", {}).get("list", [])
-    items = []
-    for i, item in enumerate(raw[:20], 1):
-        view = item.get("stat", {}).get("view", 0)
-        items.append({"rank": i, "title": item.get("title", ""),
-                      "url": f"https://www.bilibili.com/video/{item.get('bvid','')}",
-                      "hot": f"{int(view)//10000}万播放" if view else ""})
-    return make_result(items, True) if items else fail_result("B站（无数据）")
+    if not err and data and data.get("code") == 0:
+        r = _parse_list(data.get("data", {}).get("list", []))
+        if r:
+            return r
+    # 端点2: 热门视频流（排行榜被限流时的兜底）
+    data, err = http_get(
+        "https://api.bilibili.com/x/web-interface/popular?ps=20&pn=1",
+        referer="https://www.bilibili.com/", parse_json=True, timeout=10
+    )
+    if not err and data and data.get("code") == 0:
+        r = _parse_list(data.get("data", {}).get("list", []), "热门视频")
+        if r:
+            return r
+    # 端点3: 热门搜索榜（最后兜底）
+    data, err = http_get(
+        "https://app.bilibili.com/x/v2/search/trending/ranking?limit=20",
+        referer="https://www.bilibili.com/", parse_json=True, timeout=10
+    )
+    if not err and data:
+        raw = (data.get("data", {}).get("list", [])
+               or data.get("result", []) or [])
+        items = []
+        for i, it in enumerate(raw[:20], 1):
+            kw = it.get("keyword", "") or it.get("show_name", "") or it.get("name", "")
+            if kw:
+                items.append({"rank": i, "title": kw,
+                              "url": f"https://search.bilibili.com/all?keyword={requests.utils.quote(kw)}",
+                              "hot": str(it.get("hot_score", "") or "")})
+        if items:
+            return make_result(items, True, "热搜榜")
+    return fail_result("B站（暂不可用）")
 
 def fetch_bilibili():
     r, _ = safe_fetch("bilibili", _fetch_bilibili)
+    return r
+
+# ── 百度热搜 ─────────────────────────────────────────────
+def _fetch_baidu():
+    data, err = http_get(
+        "https://top.baidu.com/api/board?platform=wise&tab=realtime",
+        referer="https://top.baidu.com/", parse_json=True, timeout=12
+    )
+    if err:
+        return fail_result(f"百度热搜（{err}）")
+    cards = data.get("data", {}).get("cards", [])
+    raw = []
+    for c in cards:
+        for block in c.get("content", []):
+            inner = block.get("content", []) if isinstance(block, dict) else []
+            if isinstance(inner, list):
+                raw.extend(inner)
+    items = []
+    for i, it in enumerate(raw[:20], 1):
+        word = it.get("word", "") or it.get("query", "")
+        hot = it.get("hotScore", "") or it.get("hot", "")
+        url = it.get("url", "") or it.get("rawUrl", "") or f"https://www.baidu.com/s?wd={requests.utils.quote(word)}"
+        if word:
+            items.append({"rank": i, "title": word, "url": url, "hot": str(hot)})
+    return make_result(items, True, "实时热搜") if items else fail_result("百度热搜（无数据）")
+
+def fetch_baidu():
+    r, _ = safe_fetch("baidu", _fetch_baidu)
+    return r
+
+# ── 抖音热搜 ─────────────────────────────────────────────
+def _fetch_douyin():
+    data, err = http_get(
+        "https://www.iesdouyin.com/web/api/v2/hotsearch/billboard/word/",
+        referer="https://www.douyin.com/", parse_json=True, timeout=12
+    )
+    if err:
+        return fail_result(f"抖音热搜（{err}）")
+    raw = data.get("word_list", []) or data.get("data", {}).get("word_list", [])
+    items = []
+    for i, it in enumerate(raw[:20], 1):
+        word = it.get("word", "")
+        hot = it.get("hot_value", "")
+        if word:
+            hot_str = f"{int(hot)//10000}万" if str(hot).isdigit() else str(hot)
+            items.append({"rank": i, "title": word,
+                          "url": f"https://www.douyin.com/search/{requests.utils.quote(word)}",
+                          "hot": hot_str})
+    return make_result(items, True, "实时热搜") if items else fail_result("抖音热搜（无数据）")
+
+def fetch_douyin():
+    r, _ = safe_fetch("douyin", _fetch_douyin)
     return r
 
 
@@ -739,36 +775,58 @@ def _rss(url, ref="", note="RSS·非实时更新"):
                 continue
     return fail_result(f"RSS·{note}（暂不可用）")
 
-def fetch_36kr():
-    # 端点1: 36kr 搜索/信息流 API（无需反爬，比首页更稳定）
-    data, err = http_get(
-        "https://gateway.36kr.com/api/mis/search?keyword=&page=1&pageSize=20&sort=date",
-        referer="https://36kr.com/", parse_json=True, timeout=15
-    )
-    if not err and data:
-        raw = (data.get("data", {}).get("items", []) or data.get("data", {}).get("itemList", [])
-               or data.get("data", []))
-        items = []
-        for i, item in enumerate(raw[:20], 1):
-            title = item.get("title", "") or item.get("post", {}).get("title", "")
-            tid = item.get("id", "") or item.get("postId", "")
-            if title:
-                url = f"https://36kr.com/p/{tid}" if tid else "https://36kr.com/"
-                items.append({"rank": i, "title": title, "url": url, "hot": ""})
-        if items:
-            return make_result(items, True, "实时资讯")
+def _html_list(url, ref, selectors, note="实时资讯", limit=20,
+               min_len=6, host_filter=None, abs_host=None, realtime=True):
+    """
+    通用 HTML 列表抓取：从指定页面按 CSS 选择器抽 (标题,链接)。
+    - selectors: 候选 CSS 选择器列表，依次尝试，命中即返回
+    - host_filter: 仅保留 href 含此关键字的链接（如域名片段）
+    - abs_host: 相对链接补全为绝对链接时的主机（如 https://news.cctv.com）
+    返回 make_result 或 fail_result
+    """
+    resp, err = http_get(url, referer=ref, timeout=15)
+    if err:
+        return fail_result(f"（{err}）")
+    soup = BeautifulSoup(resp.text, "lxml")
+    seen = set()
+    items = []
+    for sel in selectors:
+        # 注意：不能对 select 结果做 [:N] 截断——某些站点（如财新）前几十个匹配是
+        # 短文本导航链接，真正标题在后面。先全量收集，再按 min_len 过滤。
+        for a in soup.select(sel):
+            if len(items) >= limit:
+                break
+            title = a.get_text(strip=True)
+            href = a.get("href", "")
+            if not title or len(title) < min_len or title in seen:
+                continue
+            if host_filter and host_filter not in href and not href.startswith("/"):
+                continue
+            if href and not href.startswith("http"):
+                href = (abs_host or ref).rstrip("/") + "/" + href.lstrip("/")
+            if title and href:
+                seen.add(title)
+                items.append({"rank": len(items) + 1, "title": title, "url": href, "hot": ""})
+        if len(items) >= limit:
+            break
+    if len(items) >= 5:
+        return make_result(items[:limit], realtime, note)
+    return fail_result(f"{note}（暂不可用）")
 
-    # 端点2: 36kr 首页 HTML
+def fetch_36kr():
+    # gateway API 已全面 500，改用 RSS feed（实测稳定）+ 首页 HTML 兜底
+    r = _rss("https://36kr.com/feed", "https://36kr.com/", "RSS·资讯")
+    if r and r.get("items"):
+        return r
+
+    # 兜底: 36kr 首页 HTML
     resp, err = http_get("https://36kr.com/", referer="https://36kr.com/", timeout=15)
     if not err:
         soup = BeautifulSoup(resp.text, "lxml")
         seen = set()
         items = []
-        for sel in [
-            ".article-title a", ".feed-title a", ".kr-shadow-content a",
-            "h3 a", ".item-title a", ".news-title a",
-            "a[href*='36kr.com/p/']",
-        ]:
+        for sel in [".article-title a", ".feed-title a", ".kr-shadow-content a",
+                    "h3 a", ".item-title a", "a[href*='36kr.com/p/']"]:
             if len(items) >= 20:
                 break
             for a in soup.select(sel)[:35]:
@@ -781,35 +839,27 @@ def fetch_36kr():
                     items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
         if items:
             return make_result(items, True, "实时资讯")
-
-    # 端点3: RSS 保底
-    resp, err = http_get("https://36kr.com/feed", referer="https://36kr.com/",
-                         accept="application/rss+xml,application/xml,*/*", timeout=15)
-    if not err:
-        soup = BeautifulSoup(resp.text, "xml")
-        items = [{"rank": i+1, "title": it.find("title").get_text(strip=True),
-                  "url": it.find("link").get_text(strip=True) if it.find("link") else "https://36kr.com/",
-                  "hot": ""}
-                 for i, it in enumerate(soup.find_all("item")[:20]) if it.find("title")]
-        if items:
-            return make_result(items, False, "RSS·非实时")
     return fail_result("36氪（暂不可用）")
 
 def fetch_huxiu():
-    # 端点1: 虎嗅首页 HTML
+    # 虎嗅启用阿里云 WAF 拦截（JS challenge），所有 UA/蜘蛛均被拦，无法可靠抓取。
+    # 改抓同类的雷锋网（科技商业资讯），保证该槽位有真实内容。
+    r = _html_list(
+        "https://www.leiphone.com/", "https://www.leiphone.com/",
+        selectors=["a[href*='leiphone.com/']", "h3 a", ".article-title a", "h2 a"],
+        host_filter="leiphone.com", abs_host="https://www.leiphone.com",
+        note="科技资讯·雷锋网", min_len=10,
+    )
+    if r.get("items"):
+        return r
+    # 兜底：尝试虎嗅首页（偶尔 WAF 放行时可用）
     resp, err = http_get("https://www.huxiu.com/", referer="https://www.huxiu.com/", timeout=15)
     if not err:
         soup = BeautifulSoup(resp.text, "lxml")
         seen = set()
         items = []
-        for sel in [
-            ".article-title a", ".b-a-title a", ".t--lg a",
-            "h3 a", ".title-text a", ".mod-art-title a",
-            "a[href*='huxiu.com/article/']",
-        ]:
-            if len(items) >= 20:
-                break
-            for a in soup.select(sel)[:30]:
+        for sel in [".article-title a", ".b-a-title a", "h3 a", "a[href*='huxiu.com/article/']"]:
+            for a in soup.select(sel)[:40]:
                 title = a.get_text(strip=True)
                 href  = a.get("href","")
                 if title and len(title) > 6 and title not in seen:
@@ -817,19 +867,10 @@ def fetch_huxiu():
                     if not href.startswith("http"):
                         href = "https://www.huxiu.com" + href
                     items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
-        if items:
-            return make_result(items, True, "实时资讯")
-
-    # 端点2: RSS
-    resp, err = http_get("https://www.huxiu.com/rss/0.xml",
-                         referer="https://www.huxiu.com/", accept="application/rss+xml,application/xml,*/*", timeout=15)
-    if not err:
-        soup = BeautifulSoup(resp.text, "xml")
-        items = [{"rank": i+1, "title": it.find("title").get_text(strip=True),
-                  "url": it.find("link").get_text(strip=True) if it.find("link") else "https://www.huxiu.com/", "hot": ""}
-                 for i, it in enumerate(soup.find_all("item")[:20]) if it.find("title")]
-        if items:
-            return make_result(items, False, "RSS·非实时")
+            if len(items) >= 20:
+                break
+        if len(items) >= 5:
+            return make_result(items[:20], True, "实时资讯")
     return fail_result("虎嗅（暂不可用）")
 
 def fetch_ifanr():
@@ -846,24 +887,55 @@ def fetch_ithome():
 
 # ── GitHub Trending ──────────────────────────────────────
 def _fetch_github():
-    resp, err = http_get(
-        "https://github.com/trending?since=daily&spoken_language_code=zh",
-        referer="https://github.com/", timeout=15
-    )
-    if err:
-        return fail_result(f"GitHub（{err}）")
-    soup = BeautifulSoup(resp.text, "lxml")
-    repos = soup.select("article.Box-row")[:20]
-    items = []
-    for i, repo in enumerate(repos, 1):
-        h2    = repo.find("h2")
-        stars = repo.find("a", href=lambda x: x and "/stargazers" in x)
-        if h2:
-            title = " ".join(h2.get_text(strip=True).split())
-            link  = "https://github.com" + h2.find("a")["href"] if h2.find("a") else "https://github.com/"
-            hot   = stars.get_text(strip=True).replace("\n","").strip() if stars else ""
-            items.append({"rank": i, "title": title, "url": link, "hot": hot})
-    return make_result(items, False, "日榜·非实时更新") if items else fail_result("GitHub（无数据）")
+    # GitHub 国内访问不稳定，且全局 session 带重试会放大超时（3 次重试 ≈ 40s）。
+    # 这里用独立的无重试请求，单端点 5s 超时，失败立即 fallback，总耗时可控在 10s 内。
+    import requests as _rq
+    _gh_sess = _rq.Session()
+    ua = _random_ua()
+    # 端点1: GitHub Trending 页面（网络可达时优先，时效性强）
+    try:
+        r = _gh_sess.get(
+            "https://github.com/trending?since=daily&spoken_language_code=zh",
+            headers={"User-Agent": ua, "Referer": "https://github.com/",
+                     "Accept-Encoding": "gzip, deflate, br"},
+            timeout=5
+        )
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, "lxml")
+            repos = soup.select("article.Box-row")[:20]
+            items = []
+            for i, repo in enumerate(repos, 1):
+                h2    = repo.find("h2")
+                stars = repo.find("a", href=lambda x: x and "/stargazers" in x)
+                if h2:
+                    title = " ".join(h2.get_text(strip=True).split())
+                    link  = "https://github.com" + h2.find("a")["href"] if h2.find("a") else "https://github.com/"
+                    hot   = stars.get_text(strip=True).replace("\n","").strip() if stars else ""
+                    items.append({"rank": i, "title": title, "url": link, "hot": hot})
+            if items:
+                return make_result(items, False, "日榜·非实时更新")
+    except Exception:
+        pass
+    # 端点2: GitHub Search API（trending 不可达时的兜底，国内通常可达）
+    try:
+        r = _gh_sess.get(
+            "https://api.github.com/search/repositories?q=created:>2026-06-01+language:python&sort=stars&order=desc&per_page=20",
+            headers={"User-Agent": ua, "Accept": "application/json",
+                     "Accept-Encoding": "gzip"},
+            timeout=5
+        )
+        if r.status_code == 200:
+            data = r.json()
+            raw = data.get("items", [])
+            items = [{"rank": i, "title": repo.get("full_name", ""),
+                      "url": repo.get("html_url", "https://github.com/"),
+                      "hot": f"{repo.get('stargazers_count', 0)} stars"}
+                     for i, repo in enumerate(raw[:20], 1) if repo.get("full_name")]
+            if items:
+                return make_result(items, False, "热门仓库·API")
+    except Exception:
+        pass
+    return fail_result("GitHub（暂不可用）")
 
 def fetch_github():
     r, _ = safe_fetch("github", _fetch_github)
@@ -895,23 +967,28 @@ def fetch_douban():
 
 # ── 猫眼电影 ────────────────────────────────────────────
 def _fetch_maoyan():
-    resp, err = http_get("https://www.maoyan.com/board/4",
-                         referer="https://www.maoyan.com/", timeout=15)
-    if err:
-        return fail_result(f"猫眼电影（{err}）")
-    soup = BeautifulSoup(resp.text, "lxml")
-    movies = soup.select(".movie-item-info")[:20]
-    items = []
-    for i, m in enumerate(movies, 1):
-        title_el = m.find("p", class_="name")
-        score_el = m.find("p", class_="score")
-        link_el  = m.find("a")
-        if title_el:
-            link = ("https://www.maoyan.com" + link_el["href"]
-                    if link_el and link_el.get("href") else "https://www.maoyan.com/")
-            items.append({"rank": i, "title": title_el.get_text(strip=True),
-                          "url": link, "hot": score_el.get_text(strip=True) if score_el else ""})
-    return make_result(items, False, "非实时更新") if items else fail_result("猫眼电影（无数据）")
+    # board/4 经典榜、board/7 热映口碑榜（结构改版，电影标题在 /films/ 链接里）
+    for board in ["7", "4", "6"]:
+        resp, err = http_get(f"https://www.maoyan.com/board/{board}",
+                             referer="https://www.maoyan.com/", timeout=15)
+        if err:
+            continue
+        soup = BeautifulSoup(resp.text, "lxml")
+        seen = set()
+        items = []
+        for a in soup.select("a[href*='/films/']"):
+            title = a.get_text(strip=True)
+            href = a.get("href", "")
+            if title and 1 < len(title) < 30 and title not in seen:
+                seen.add(title)
+                items.append({"rank": len(items) + 1, "title": title,
+                              "url": "https://www.maoyan.com" + href, "hot": ""})
+            if len(items) >= 20:
+                break
+        if len(items) >= 5:
+            note = "热映口碑榜" if board == "7" else ("经典榜" if board == "4" else "期待榜")
+            return make_result(items[:20], True, note)
+    return fail_result("猫眼电影（无数据）")
 
 def fetch_maoyan():
     r, _ = safe_fetch("maoyan", _fetch_maoyan)
@@ -979,24 +1056,29 @@ def _fetch_sina_ent():
                 except (UnicodeDecodeError, LookupError):
                     continue
 
-    # 端点2: 新浪娱乐首页 HTML
-    resp, err = http_get("https://ent.sina.com.cn/", referer="https://ent.sina.com.cn/", timeout=15)
-    if not err:
+    # 端点2: 新浪娱乐首页 HTML（item / ty-card-tt class 含标题）
+    for page_url in ["https://ent.sina.com.cn/", "https://ent.sina.cn/"]:
+        resp, err = http_get(page_url, referer="https://ent.sina.com.cn/", timeout=15)
+        if err:
+            continue
         soup = BeautifulSoup(resp.text, "lxml")
         seen = set()
         items = []
-        for a in soup.select("h2 a, h3 a, .news-title a, .article-title a")[:25]:
-            title = a.get_text(strip=True)
-            href = a.get("href", "")
-            if title and len(title) > 6 and title not in seen:
-                seen.add(title)
-                if not href.startswith("http"):
-                    href = "https://ent.sina.com.cn" + href
-                items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
+        for sel in [".ty-card-tt a", ".item a", "h2 a", "h3 a",
+                    ".news-title a", ".article-title a", "a[href*='doc-']",
+                    "a[href*='sina.cn']"]:
+            for a in soup.select(sel)[:30]:
+                title = a.get_text(strip=True)
+                href = a.get("href", "")
+                if title and 6 < len(title) < 70 and title not in seen and "sina" in href:
+                    seen.add(title)
+                    items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
+                if len(items) >= 20:
+                    break
             if len(items) >= 20:
                 break
-        if items:
-            return make_result(items, True, "实时娱乐")
+        if len(items) >= 5:
+            return make_result(items[:20], True, "实时娱乐")
     return fail_result("新浪娱乐（暂不可用）")
 
 def fetch_sina_ent():
@@ -1005,29 +1087,15 @@ def fetch_sina_ent():
 
 # ── 凤凰娱乐 ────────────────────────────────────────────
 def _fetch_ifeng_ent():
-    # 端点1: RSS
-    r = _rss("https://rss.ifeng.com/ent.xml", "https://ent.ifeng.com/", "RSS·非实时")
-    if r and r.get("items"):
-        return r
-    # 端点2: 凤凰娱乐首页 HTML
-    resp, err = http_get("https://ent.ifeng.com/", referer="https://ent.ifeng.com/", timeout=15)
-    if not err:
-        soup = BeautifulSoup(resp.text, "lxml")
-        seen = set()
-        items = []
-        for a in soup.select("h2 a, h3 a, .article-title a, .news-title a")[:25]:
-            title = a.get_text(strip=True)
-            href = a.get("href", "")
-            if title and len(title) > 6 and title not in seen:
-                seen.add(title)
-                if not href.startswith("http"):
-                    href = "https://ent.ifeng.com" + href
-                items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
-            if len(items) >= 20:
-                break
-        if items:
-            return make_result(items, True, "实时娱乐")
-    return fail_result("凤凰娱乐（暂不可用）")
+    # RSS 已下线，改抓凤凰娱乐首页 HTML（h3 / index_text 为标题链接）
+    return _html_list(
+        "https://ent.ifeng.com/", "https://ent.ifeng.com/",
+        selectors=["h3 a", ".index_text_02_qj-1v a", ".index_text_04_YVFpW a",
+                   ".style_vBlack_FKLqo a", "h2 a", ".article-title a",
+                   "a[href*='/c/']"],
+        host_filter="ifeng.com", abs_host="https://ent.ifeng.com",
+        note="实时娱乐",
+    )
 
 def fetch_ifeng_ent():
     r, _ = safe_fetch("ifeng_ent", _fetch_ifeng_ent)
@@ -1039,26 +1107,16 @@ def fetch_ifeng_ent():
 # ══════════════════════════════════════════════════════════════
 
 def _fetch_caixin():
-    r = _rss("https://www.caixin.com/rss/latest.xml", "https://www.caixin.com/", "RSS·非实时")
-    if r and r.get("items"):
-        return r
-    resp, err = http_get("https://www.caixin.com/", referer="https://www.caixin.com/", timeout=15)
-    if not err:
-        soup = BeautifulSoup(resp.text, "lxml")
-        seen = set()
-        items = []
-        for a in soup.select("h2 a, h3 a, .article-title a, a[href*='caixin.com']")[:25]:
-            title = a.get_text(strip=True)
-            href = a.get("href", "")
-            if title and len(title) > 8 and title not in seen:
-                seen.add(title)
-                if not href.startswith("http"):
-                    href = "https://www.caixin.com" + href
-                items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
-            if len(items) >= 20:
-                break
-        if items:
-            return make_result(items, True, "实时资讯")
+    # RSS 已失效，财新首页含静态新闻链接，多频道抓取
+    for page_url in ["https://www.caixin.com/", "https://economy.caixin.com/", "https://finance.caixin.com/"]:
+        r = _html_list(
+            page_url, "https://www.caixin.com/",
+            selectors=["a[href*='caixin.com/']"],
+            host_filter="caixin.com", abs_host="https://www.caixin.com",
+            note="实时资讯", min_len=12,
+        )
+        if r.get("status") == "success" and len(r.get("items", [])) >= 5:
+            return r
     return fail_result("财新（暂不可用）")
 
 def fetch_caixin():
@@ -1066,54 +1124,28 @@ def fetch_caixin():
     return r
 
 def _fetch_yicai():
-    r = _rss("https://www.yicai.com/rss", "https://www.yicai.com/", "RSS·非实时")
-    if r and r.get("items"):
-        return r
-    resp, err = http_get("https://www.yicai.com/", referer="https://www.yicai.com/", timeout=15)
-    if not err:
-        soup = BeautifulSoup(resp.text, "lxml")
-        seen = set()
-        items = []
-        for a in soup.select("h2 a, h3 a, .article-title a, .news-title a")[:25]:
-            title = a.get_text(strip=True)
-            href = a.get("href", "")
-            if title and len(title) > 8 and title not in seen:
-                seen.add(title)
-                if not href.startswith("http"):
-                    href = "https://www.yicai.com" + href
-                items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
-            if len(items) >= 20:
-                break
-        if items:
-            return make_result(items, True, "实时资讯")
-    return fail_result("第一财经（暂不可用）")
+    # RSS 已下线，改抓第一财经新闻页 HTML（f-db class 为列表项）
+    return _html_list(
+        "https://www.yicai.com/news/", "https://www.yicai.com/",
+        selectors=[".f-db a", "h2 a", "h3 a", ".news-title a",
+                   ".article-title a", "a[href*='/news/']"],
+        host_filter="yicai.com", abs_host="https://www.yicai.com",
+        note="实时资讯",
+    )
 
 def fetch_yicai():
     r, _ = safe_fetch("yicai", _fetch_yicai)
     return r
 
 def _fetch_jiemian():
-    r = _rss("https://www.jiemian.com/lists/rss.html", "https://www.jiemian.com/", "RSS·非实时")
-    if r and r.get("items"):
-        return r
-    resp, err = http_get("https://www.jiemian.com/", referer="https://www.jiemian.com/", timeout=15)
-    if not err:
-        soup = BeautifulSoup(resp.text, "lxml")
-        seen = set()
-        items = []
-        for a in soup.select("h2 a, h3 a, .article-title a, .news-title a")[:25]:
-            title = a.get_text(strip=True)
-            href = a.get("href", "")
-            if title and len(title) > 8 and title not in seen:
-                seen.add(title)
-                if not href.startswith("http"):
-                    href = "https://www.jiemian.com" + href
-                items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
-            if len(items) >= 20:
-                break
-        if items:
-            return make_result(items, True, "实时资讯")
-    return fail_result("界面新闻（暂不可用）")
+    # RSS 已下线，改抓界面首页 HTML（.statistical_link 为列表链接）
+    return _html_list(
+        "https://www.jiemian.com/", "https://www.jiemian.com/",
+        selectors=["a.statistical_link", ".statistical_link",
+                   "h2 a", "h3 a", ".article-title a", "a[href*='/article/']"],
+        host_filter="jiemian.com", abs_host="https://www.jiemian.com",
+        note="实时资讯",
+    )
 
 def fetch_jiemian():
     r, _ = safe_fetch("jiemian", _fetch_jiemian)
@@ -1121,58 +1153,61 @@ def fetch_jiemian():
 
 # ── 华尔街见闻 ─────────────────────────────────────────────
 def _fetch_wallstreet():
-    r = _rss("https://wallstreetcn.com/rss", "https://wallstreetcn.com/", "RSS·非实时")
-    if r and r.get("items"):
-        return r
-    # API
+    # 实测可用：api-one-wscn.awtmt.com 的快讯接口
     for url in [
-        "https://wallstreetcn.com/api/v2/lives/hot?limit=20&platform=pc",
-        "https://api-pub.wallstcn.com/apiv1/content/lives?channel=global-channel&limit=20",
+        "https://api-one-wscn.awtmt.com/apiv1/content/lives?channel=global-channel&limit=20",
+        "https://api-one.wallstcn.com/apiv1/content/articles?channel=global-channel&limit=20",
     ]:
         data, err = http_get(url, referer="https://wallstreetcn.com/",
                              accept="application/json", parse_json=True, timeout=15)
         if not err and data:
             raw = (data.get("data", {}).get("items", [])
-                  or data.get("data", [])
-                  or data.get("results", []))
+                   or data.get("data", [])
+                   or data.get("results", []))
             items = []
             for i, item in enumerate(raw[:20], 1):
-                content = item.get("content_text","") or item.get("title","") or item.get("summary","")
+                content = (item.get("title", "") or item.get("content_text", "")
+                           or item.get("description", "") or item.get("summary", ""))
                 if content:
-                    content = content[:60].strip()
-                    items.append({"rank": i, "title": content,
-                                  "url": f"https://wallstreetcn.com/articles/{item.get('id','')}",
-                                  "hot": ""})
+                    content = content.strip().split("\n")[0][:60]
+                    uri = item.get("uri", "") or ""
+                    lid = item.get("id", "")
+                    link = (f"https://wallstreetcn.com{uri}" if uri
+                            else f"https://wallstreetcn.com/live/livenews/{lid}" if lid
+                            else "https://wallstreetcn.com/")
+                    items.append({"rank": i, "title": content, "url": link, "hot": ""})
             if items:
                 return make_result(items, True, "实时快讯")
-    # HTML 备用
-    resp, err = http_get("https://wallstreetcn.com/", referer="https://wallstreetcn.com/", timeout=15)
-    if not err:
-        soup = BeautifulSoup(resp.text, "lxml")
-        seen = set()
-        items = []
-        for a in soup.select("h2 a, h3 a, .article-title a")[:20]:
-            title = a.get_text(strip=True)
-            href = a.get("href", "")
-            if title and len(title) > 8 and title not in seen:
-                seen.add(title)
-                if not href.startswith("http"):
-                    href = "https://wallstreetcn.com" + href
-                items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
-            if len(items) >= 20:
-                break
-        if items:
-            return make_result(items, True, "实时资讯")
     return fail_result("华尔街见闻（暂不可用）")
 
 def fetch_wallstreet():
     r, _ = safe_fetch("wallstreet", _fetch_wallstreet)
     return r
 
-# ── 雪球（Cookie 限制）─────────────────────────────────
+# ── 东方财富快讯（替代雪球——雪球需登录 Cookie 不可用）──────────────
 def _fetch_xueqiu():
-    # 雪球需要 Cookie，直接返回不可用比返回过期数据更好
-    return fail_result("雪球（需登录 Cookie，暂时不可用）")
+    import re
+    resp, err = http_get(
+        "https://newsapi.eastmoney.com/kuaixun/v1/getlist_102_ajaxResult_50_1_.html",
+        referer="https://www.eastmoney.com/", timeout=12
+    )
+    if err:
+        return fail_result(f"东方财富（{err}）")
+    try:
+        m = re.search(r"ajaxResult\s*=\s*(\{.*\})", resp.text, re.DOTALL)
+        data = json.loads(m.group(1)) if m else {}
+        raw = data.get("LivesList", []) or data.get("data", [])
+        items = []
+        for i, it in enumerate(raw[:20], 1):
+            title = it.get("title", "") or it.get("digest", "")
+            url = it.get("url_w", "") or it.get("url", "") or "https://www.eastmoney.com/"
+            if title:
+                items.append({"rank": i, "title": title, "url": url, "hot": ""})
+        if items:
+            return make_result(items, True, "实时快讯·东财")
+    except (json.JSONDecodeError, AttributeError):
+        pass
+    return fail_result("东方财富（暂不可用）")
 
 def fetch_xueqiu():
     r, _ = safe_fetch("xueqiu", _fetch_xueqiu)
@@ -1184,54 +1219,42 @@ def fetch_xueqiu():
 # ══════════════════════════════════════════════════════════════
 
 def _fetch_guancha():
-    r = _rss("https://www.guancha.cn/rss.xml", "https://www.guancha.cn/", "RSS·非实时")
-    if r and r.get("items"):
-        return r
-    resp, err = http_get("https://www.guancha.cn/", referer="https://www.guancha.cn/", timeout=15)
-    if not err:
-        soup = BeautifulSoup(resp.text, "lxml")
-        seen = set()
-        items = []
-        for a in soup.select("h3 a, h4 a, .article-title a, .art-title a, .title a")[:25]:
-            title = a.get_text(strip=True)
-            href = a.get("href", "")
-            if title and len(title) > 6 and title not in seen:
-                seen.add(title)
-                if not href.startswith("http"):
-                    href = "https://www.guancha.cn" + href
-                items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
-            if len(items) >= 20:
-                break
-        if items:
-            return make_result(items, True, "实时资讯")
-    return fail_result("观察者网（暂不可用）")
+    # RSS 已下线，改抓观察者网首页 HTML（h4 为文章标题）
+    return _html_list(
+        "https://www.guancha.cn/", "https://www.guancha.cn/",
+        selectors=["h4 a", "h3 a", ".article-title a", ".art-title a",
+                   ".headline-title a", "a[href*='.shtml']"],
+        host_filter="guancha.cn", abs_host="https://www.guancha.cn",
+        note="实时资讯",
+    )
 
 def fetch_guancha():
     r, _ = safe_fetch("guancha", _fetch_guancha)
     return r
 
 def _fetch_huanqiu():
-    r = _rss("https://www.huanqiu.com/rss", "https://www.huanqiu.com/", "RSS·非实时")
-    if r and r.get("items"):
-        return r
-    resp, err = http_get("https://www.huanqiu.com/", referer="https://www.huanqiu.com/", timeout=15)
-    if not err:
-        soup = BeautifulSoup(resp.text, "lxml")
-        seen = set()
+    # RSS 已下线，改用环球网 JSON API（实测可用）
+    data, err = http_get(
+        "https://www.huanqiu.com/api/list?node=%22/hqmh%22&offset=0&limit=20",
+        referer="https://www.huanqiu.com/", parse_json=True, timeout=12
+    )
+    if not err and data:
+        raw = data.get("list", []) or data.get("items", [])
         items = []
-        for a in soup.select("h3 a, h4 a, .article-title a, .title a")[:25]:
-            title = a.get_text(strip=True)
-            href = a.get("href", "")
-            if title and len(title) > 6 and title not in seen:
-                seen.add(title)
-                if not href.startswith("http"):
-                    href = "https://www.huanqiu.com" + href
-                items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
-            if len(items) >= 20:
-                break
+        for i, it in enumerate(raw[:20], 1):
+            title = it.get("title", "")
+            aid = it.get("aid", "") or it.get("url", "")
+            if title:
+                url = aid if str(aid).startswith("http") else f"https://www.huanqiu.com/article/{aid}"
+                items.append({"rank": i, "title": title, "url": url, "hot": ""})
         if items:
             return make_result(items, True, "实时资讯")
-    return fail_result("环球时报（暂不可用）")
+    # HTML 兜底
+    return _html_list("https://www.huanqiu.com/", "https://www.huanqiu.com/",
+                      selectors=["a.news-title", "h3 a", "h4 a", ".article-title a",
+                                 "a.author-name", ".news-link", "a[href*='/article/']"],
+                      host_filter="huanqiu.com", abs_host="https://www.huanqiu.com",
+                      note="实时资讯")
 
 def fetch_huanqiu():
     r, _ = safe_fetch("huanqiu", _fetch_huanqiu)
@@ -1239,7 +1262,14 @@ def fetch_huanqiu():
 
 # ── 参考消息 → 用新华社世界频道代替 ──────────────────────
 def _fetch_cankaoxiaoxi():
-    return _rss("https://www.news.cn/rss/world.xml", "https://www.news.cn/", "RSS·非实时")
+    # 原 RSS 已下线，改抓新华网世界频道 HTML（国际新闻）
+    return _html_list(
+        "https://www.news.cn/world/", "https://www.news.cn/",
+        selectors=["h3 a", ".news-title a", ".tit a", "a[href*='/news.cn/']",
+                   ".partList a", ".dataList a", ".domPC_a a"],
+        host_filter="news.cn", abs_host="https://www.news.cn",
+        note="国际新闻·非实时",
+    )
 
 def fetch_cankaoxiaoxi():
     r, _ = safe_fetch("cankaoxiaoxi", _fetch_cankaoxiaoxi)
@@ -1305,16 +1335,52 @@ def fetch_hupu():
 
 # ── 懂球帝 ─────────────────────────────────────────────
 def _fetch_dongqiudi():
-    # 懂球帝主站通常需要 JS 渲染，用 RSS 保底
-    return _rss("https://www.dongqiudi.com/rss/news", "https://www.dongqiudi.com/", "RSS·非实时")
+    # 懂球帝主站反爬严重（移动版精简页 / API 403），改用直播吧移动版（GBK 编码）作为体育资讯源
+    resp, err = http_get("https://m.zhibo8.com/", referer="https://m.zhibo8.com/",
+                         timeout=15, raw_bytes=True)
+    if err:
+        return fail_result(f"体育资讯（{err}）")
+    # 直播吧为 GBK 编码
+    text = None
+    for enc in ["utf-8", "gb18030", "gbk"]:
+        try:
+            text = resp.decode(enc)
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+    if not text:
+        return fail_result("体育资讯（编码错误）")
+    soup = BeautifulSoup(text, "lxml")
+    seen = set()
+    items = []
+    for a in soup.find_all("a", href=True):
+        title = a.get_text(strip=True)
+        href = a.get("href", "")
+        if title and len(title) > 8 and "/news/" in href and title not in seen:
+            seen.add(title)
+            if not href.startswith("http"):
+                href = "https://m.zhibo8.com" + href
+            items.append({"rank": len(items) + 1, "title": title, "url": href, "hot": ""})
+        if len(items) >= 20:
+            break
+    if len(items) >= 5:
+        return make_result(items[:20], True, "体育资讯·直播吧")
+    return fail_result("懂球帝（暂不可用）")
 
 def fetch_dongqiudi():
     r, _ = safe_fetch("dongqiudi", _fetch_dongqiudi)
     return r
 
-# ── 央视体育 RSS ───────────────────────────────────────
+# ── 央视体育 ───────────────────────────────────────
 def _fetch_cctv_sports():
-    return _rss("https://sports.cctv.com/rss/china.xml", "https://sports.cctv.com/", "RSS·非实时")
+    # RSS 已下线，改抓体育频道 HTML
+    return _html_list(
+        "https://sports.cctv.com/", "https://sports.cctv.com/",
+        selectors=[".title a", "h3 a", ".news-title a", ".word a",
+                   ".cetitle a", "a[href*='/202']"],
+        host_filter="cctv.com", abs_host="https://sports.cctv.com",
+        note="体育新闻·非实时",
+    )
 
 def fetch_cctv_sports():
     r, _ = safe_fetch("cctv_sports", _fetch_cctv_sports)
@@ -1363,6 +1429,8 @@ FETCHERS = {
     "weibo":       fetch_weibo,
     "tencent":     fetch_tencent,
     "toutiao":     fetch_toutiao,
+    "baidu":       fetch_baidu,
+    "douyin":      fetch_douyin,
     "wangyi":      fetch_wangyi,
     "sina":        fetch_sina,
     "rmrb":        fetch_rmrb,
@@ -1396,7 +1464,7 @@ FETCHERS = {
 }
 
 CATEGORIES = {
-    "综合":    ["weibo","tencent","toutiao","pengpai","zhihu","bilibili","rmrb","cctv","xinhua"],
+    "综合":    ["weibo","tencent","baidu","douyin","toutiao","wangyi","sina","pengpai","zhihu","bilibili","rmrb","cctv","xinhua"],
     "科技":    ["36kr","huxiu","ifanr","sspai","ithome","github"],
     "娱乐":    ["douban","maoyan","weibo_ent","sina_ent","ifeng_ent"],
     "财经":    ["caixin","yicai","jiemian","wallstreet","xueqiu"],
@@ -1406,14 +1474,15 @@ CATEGORIES = {
 
 PLATFORM_NAMES = {
     "weibo": "微博热搜", "tencent": "腾讯新闻", "toutiao": "今日头条",
-    "wangyi": "网易新闻", "sina": "新浪新闻", "rmrb": "人民日报",
-    "cctv": "央视新闻", "xinhua": "新华社", "pengpai": "澎湃新闻",
-    "zhihu": "知乎热搜", "bilibili": "B站排行", "36kr": "36氪",
-    "huxiu": "虎嗅", "ifanr": "爱范儿", "sspai": "少数派",
-    "ithome": "IT之家", "github": "GitHub趋势", "douban": "豆瓣电影",
+    "baidu": "百度热搜", "douyin": "抖音热搜", "wangyi": "网易新闻",
+    "sina": "新浪新闻", "rmrb": "人民日报", "cctv": "央视新闻",
+    "xinhua": "新华社", "pengpai": "澎湃新闻", "zhihu": "知乎热搜",
+    "bilibili": "B站排行", "36kr": "36氪", "huxiu": "虎嗅·雷锋网",
+    "ifanr": "爱范儿", "sspai": "少数派", "ithome": "IT之家",
+    "github": "GitHub趋势", "douban": "豆瓣电影",
     "maoyan": "猫眼电影", "weibo_ent": "微博娱乐", "sina_ent": "新浪娱乐",
     "ifeng_ent": "凤凰娱乐", "caixin": "财新", "yicai": "第一财经",
-    "jiemian": "界面新闻", "wallstreet": "华尔街见闻", "xueqiu": "雪球",
+    "jiemian": "界面新闻", "wallstreet": "华尔街见闻", "xueqiu": "东方财富",
     "guancha": "观察者网", "huanqiu": "环球时报", "cankaoxiaoxi": "参考消息",
     "hupu": "虎扑", "dongqiudi": "懂球帝", "cctv_sports": "央视体育",
 }
@@ -1423,6 +1492,8 @@ RAW_FETCHERS = {
     "weibo":       _fetch_weibo,
     "tencent":     _fetch_tencent,
     "toutiao":     _fetch_toutiao,
+    "baidu":       _fetch_baidu,
+    "douyin":      _fetch_douyin,
     "wangyi":      _fetch_wangyi,
     "sina":        _fetch_sina,
     "rmrb":        _fetch_rmrb,
@@ -1597,6 +1668,38 @@ def get_platforms():
 @app.route("/api/ping")
 def ping():
     return jsonify({"ok": True, "ts": now_str(), "server_time": now_full()})
+
+@app.route("/api/health")
+def health():
+    """健康检查：统计各平台缓存状态，便于部署后监控可用率"""
+    now = time.time()
+    fresh_ok, stale_ok, failed = 0, 0, 0
+    detail = {}
+    with _lock:
+        for pid in FETCHERS:
+            item = _cache.get(pid)
+            if not item:
+                detail[pid] = "uncached"; continue
+            age = now - item.get("ts", 0)
+            data = item.get("data", {})
+            ok = data.get("status") == "success" and bool(data.get("items"))
+            if not ok:
+                failed += 1; detail[pid] = "failed"
+            elif age < CACHE_TTL * 2:
+                fresh_ok += 1; detail[pid] = f"fresh({int(age)}s)"
+            else:
+                stale_ok += 1; detail[pid] = f"stale({int(age)}s)"
+    return jsonify({
+        "ok": True,
+        "platforms_total": len(FETCHERS),
+        "fresh_ok": fresh_ok,
+        "stale_ok": stale_ok,
+        "failed": failed,
+        "uncached": len(FETCHERS) - fresh_ok - stale_ok - failed,
+        "cache_ttl": CACHE_TTL,
+        "server_time": now_full(),
+        "detail": detail,
+    })
 
 @app.route("/api/refresh")
 def trigger_refresh():

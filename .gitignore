@@ -1,0 +1,20 @@
+# 虚拟环境
+venv/
+__pycache__/
+*.pyc
+
+# 数据库
+*.db
+
+# 本地启动脚本
+start.bat
+start.sh
+start-online.bat
+
+# 本地工具/编辑器目录
+.workbuddy/
+.claude/
+cloudflared.exe
+
+# macOS
+.DS_Store

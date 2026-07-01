@@ -213,6 +213,79 @@
     .status-bar-left { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
     .status-bar-right { font-size: .72rem; color: var(--text-muted); }
 
+    /* ════ SEARCH ════════════════════════════════════════════ */
+    .search-wrap {
+      position: relative; width: 100%; margin-bottom: 1rem;
+    }
+    .search-box {
+      width: 100%; padding: .7rem 1rem .7rem 2.5rem;
+      border-radius: 12px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--text);
+      font-size: .92rem; outline: none; transition: all .15s;
+    }
+    .search-box:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
+    .search-box::placeholder { color: var(--text-muted); }
+    .search-icon {
+      position: absolute; left: .85rem; top: 50%; transform: translateY(-50%);
+      font-size: 1rem; opacity: .6; pointer-events: none;
+    }
+    .search-clear {
+      position: absolute; right: .7rem; top: 50%; transform: translateY(-50%);
+      display: none; cursor: pointer; font-size: .85rem;
+      color: var(--text-muted); background: var(--surface2);
+      width: 1.4rem; height: 1.4rem; border-radius: 50%; border: none;
+      align-items: center; justify-content: center;
+    }
+    .search-clear.show { display: flex; }
+    .search-clear:hover { color: var(--text); background: var(--surface3); }
+    /* 搜索高亮 */
+    mark.hl {
+      background: rgba(240,180,41,.28); color: var(--gold);
+      padding: 0 2px; border-radius: 3px;
+    }
+    /* 搜索结果面板 */
+    .search-results {
+      display: none; margin-bottom: 1rem;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden;
+    }
+    .search-results.show { display: block; animation: fadeIn .15s; }
+    .search-results-header {
+      padding: .65rem 1rem; font-size: .8rem; color: var(--text-muted);
+      border-bottom: 1px solid var(--border); background: var(--surface2);
+    }
+    .search-item {
+      display: flex; align-items: center; gap: .6rem;
+      padding: .6rem 1rem; border-bottom: 1px solid var(--border);
+      transition: background .12s;
+    }
+    .search-item:last-child { border-bottom: none; }
+    .search-item:hover { background: var(--surface2); }
+    .search-item-rank {
+      font-size: .72rem; color: var(--text-muted); min-width: 1.8rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .search-item-title {
+      flex: 1; font-size: .88rem; color: var(--text);
+      text-decoration: none; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    .search-item-title:hover { color: var(--accent); }
+    .search-item-plat {
+      font-size: .68rem; color: #fff; padding: .12rem .5rem;
+      border-radius: 4px; white-space: nowrap;
+    }
+    .search-empty {
+      padding: 1.5rem; text-align: center; color: var(--text-muted); font-size: .85rem;
+    }
+    .retry-btn {
+      font-size: .72rem; color: var(--text); cursor: pointer;
+      background: var(--surface3); border: 1px solid var(--border);
+      padding: .25rem .6rem; border-radius: 999px; transition: all .15s;
+    }
+    .retry-btn:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .retry-btn:disabled { opacity: .6; cursor: wait; }
+
     /* 平台筛选 tabs（在综合视图内） */
     .plat-tabs {
       display: flex; align-items: center; gap: .25rem;
@@ -510,6 +583,19 @@
 
 <!-- ════ MAIN ═════════════════════════════════════════════ -->
 <main>
+  <!-- 全局搜索 -->
+  <div class="search-wrap">
+    <span class="search-icon">🔎</span>
+    <input type="text" id="globalSearch" class="search-box"
+           placeholder="搜索全部平台的热点标题…（输入关键词，回车在新标签打开首条结果）"
+           autocomplete="off" />
+    <button class="search-clear" id="searchClear" onclick="clearSearch()">✕</button>
+  </div>
+  <div class="search-results" id="searchResults">
+    <div class="search-results-header" id="searchHeader"></div>
+    <div id="searchBody"></div>
+  </div>
+
   <div class="status-bar">
     <div class="status-bar-left">
       <!-- 平台 tabs（动态生成） -->
@@ -622,6 +708,8 @@ const PLATFORM_META = {
   // 综合
   weibo:      { label:"微博热搜",   color:"#ff7e5f", home:"https://s.weibo.com/top/summary",  emoji:"🌊" },
   tencent:    { label:"腾讯新闻",   color:"#07c160", home:"https://news.qq.com/",              emoji:"📰" },
+  baidu:      { label:"百度热搜",   color:"#2932e1", home:"https://top.baidu.com/board?tab=realtime", emoji:"🔍" },
+  douyin:     { label:"抖音热搜",   color:"#161823", home:"https://www.douyin.com/hot",        emoji:"🎵" },
   toutiao:    { label:"今日头条",   color:"#e63946", home:"https://www.toutiao.com/",          emoji:"📲" },
   wangyi:     { label:"网易新闻",   color:"#cc0000", home:"https://news.163.com/",             emoji:"📡" },
   sina:       { label:"新浪新闻",   color:"#ff8800", home:"https://news.sina.com.cn/",         emoji:"📢" },
@@ -633,7 +721,7 @@ const PLATFORM_META = {
   bilibili:   { label:"B站",        color:"#fb7299", home:"https://www.bilibili.com/",         emoji:"📹" },
   // 科技
   "36kr":     { label:"36氪",       color:"#21a179", home:"https://36kr.com/",                 emoji:"🚀" },
-  huxiu:      { label:"虎嗅",       color:"#e63000", home:"https://www.huxiu.com/",            emoji:"🐯" },
+  huxiu:      { label:"虎嗅·雷锋网",color:"#e63000", home:"https://www.leiphone.com/",         emoji:"🐯" },
   ifanr:      { label:"爱范儿",     color:"#6366f1", home:"https://www.ifanr.com/",            emoji:"💡" },
   sspai:      { label:"少数派",     color:"#d97706", home:"https://sspai.com/",                emoji:"📱" },
   ithome:     { label:"IT之家",     color:"#0ea5e9", home:"https://www.ithome.com/",           emoji:"🖥️" },
@@ -649,7 +737,7 @@ const PLATFORM_META = {
   yicai:      { label:"第一财经",   color:"#1e3a8a", home:"https://www.yicai.com/",            emoji:"📊" },
   jiemian:    { label:"界面新闻",   color:"#0f766e", home:"https://www.jiemian.com/",          emoji:"📑" },
   wallstreet: { label:"华尔街见闻", color:"#2563eb", home:"https://wallstreetcn.com/",         emoji:"🏦" },
-  xueqiu:     { label:"雪球",       color:"#06b6d4", home:"https://xueqiu.com/",              emoji:"❄️" },
+  xueqiu:     { label:"东方财富",   color:"#c80000", home:"https://www.eastmoney.com/",        emoji:"📈" },
   // 军事国际
   guancha:    { label:"观察者网",   color:"#dc2626", home:"https://www.guancha.cn/",           emoji:"🔍" },
   huanqiu:    { label:"环球时报",   color:"#7c3aed", home:"https://www.huanqiu.com/",          emoji:"🌏" },
@@ -661,7 +749,7 @@ const PLATFORM_META = {
 };
 
 const CATEGORIES = {
-  "综合":     ["weibo","tencent","toutiao","pengpai","zhihu","bilibili","rmrb","cctv","xinhua"],
+  "综合":     ["weibo","tencent","baidu","douyin","toutiao","wangyi","sina","pengpai","zhihu","bilibili","rmrb","cctv","xinhua"],
   "科技":     ["36kr","huxiu","ifanr","sspai","ithome","github"],
   "娱乐":     ["douban","maoyan","weibo_ent","sina_ent","ifeng_ent"],
   "财经":     ["caixin","yicai","jiemian","wallstreet","xueqiu"],
@@ -1163,12 +1251,40 @@ function renderFailedSection() {
         <span>${m.emoji||""} ${fp.name}</span>
       </div>
       <div class="failed-card-note">${esc(fp.note || "抓取失败")}</div>
-      <a href="${m.home || '#'}" target="_blank" rel="noopener"
-         style="font-size:.72rem;color:#60a5fa;text-decoration:none;padding-left:.9rem;margin-top:.2rem;display:inline-block">
-        ↗ 访问官网
-      </a>
+      <div style="padding-left:.9rem;margin-top:.2rem;display:flex;gap:.8rem;align-items:center">
+        <button onclick="retryPlatform('${fp.platform}')" class="retry-btn">🔄 重试</button>
+        <a href="${m.home || '#'}" target="_blank" rel="noopener"
+           style="font-size:.72rem;color:#60a5fa;text-decoration:none">↗ 访问官网</a>
+      </div>
     </div>`;
   }).join("");
+}
+
+// 单平台重试：强制刷新该平台，成功则回到主网格
+async function retryPlatform(pid) {
+  const btn = event && event.target;
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ 重试中…"; }
+  try {
+    const resp = await fetch(`/api/news/batch?platforms=${pid}&refresh=1`);
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    const { _meta, ...clean } = data;
+    Object.assign(newsCache, clean);
+    const platData = clean[pid];
+    // 若重试成功（有数据），从失败列表移除
+    if (platData && platData.items && platData.items.length) {
+      failedPlatforms = failedPlatforms.filter(fp => fp.platform !== pid);
+      // 同时更新当前分类的缓存元信息
+      if (catCacheMeta[currentCat]) {
+        catCacheMeta[currentCat].failedPlatforms = [...failedPlatforms];
+      }
+    }
+    renderView();
+    updateTimeDisplay();
+  } catch(e) {
+    console.error("重试失败:", e);
+    if (btn) { btn.disabled = false; btn.textContent = "🔄 重试"; }
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1414,12 +1530,108 @@ async function shareNative() {
 }
 
 // ════════════════════════════════════════════════════════════
+// 全局搜索（跨所有已加载平台的标题过滤，纯客户端）
+// ════════════════════════════════════════════════════════════
+let _searchTimer = null;
+function onSearchInput(v) {
+  const clearBtn = document.getElementById("searchClear");
+  clearBtn.classList.toggle("show", !!v);
+  // 防抖：输入停止 250ms 后再过滤
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => runSearch(v), 250);
+}
+
+function clearSearch() {
+  const box = document.getElementById("globalSearch");
+  box.value = "";
+  document.getElementById("searchClear").classList.remove("show");
+  document.getElementById("searchResults").classList.remove("show");
+  box.focus();
+}
+
+function escapeReg(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function runSearch(query) {
+  const panel = document.getElementById("searchResults");
+  const header = document.getElementById("searchHeader");
+  const body = document.getElementById("searchBody");
+  query = (query || "").trim();
+  if (!query) {
+    panel.classList.remove("show");
+    return;
+  }
+  // 遍历 newsCache 所有平台的所有条目
+  const matches = [];
+  const re = new RegExp(escapeReg(query), "i");
+  for (const pid in newsCache) {
+    const data = newsCache[pid];
+    if (!data || !data.items) continue;
+    const meta = PLATFORM_META[pid] || { label: pid, color: "#64748b" };
+    for (const it of data.items) {
+      if (re.test(it.title || "")) {
+        matches.push({ ...it, pid, platLabel: meta.label, platColor: meta.color });
+      }
+    }
+  }
+  // 按热度/排名排序（有 hot 数值的靠前，否则按原 rank）
+  matches.sort((a, b) => {
+    const ha = parseInt(String(a.hot).replace(/[^\d]/g, "")) || 0;
+    const hb = parseInt(String(b.hot).replace(/[^\d]/g, "")) || 0;
+    if (hb !== ha) return hb - ha;
+    return (a.rank || 0) - (b.rank || 0);
+  });
+  const top = matches.slice(0, 50);
+
+  panel.classList.add("show");
+  header.innerHTML = `🔎 找到 <b style="color:var(--gold)">${matches.length}</b> 条相关热点`
+    + (matches.length > 50 ? `（仅显示前 50 条）` : "");
+
+  if (top.length === 0) {
+    body.innerHTML = `<div class="search-empty">😢 没有找到包含「${esc(query)}」的热点，换个关键词试试</div>`;
+    return;
+  }
+  // 高亮关键词
+  const hlRe = new RegExp(`(${escapeReg(query)})`, "gi");
+  body.innerHTML = top.map(it =>
+    `<div class="search-item">
+      <span class="search-item-rank">${it.rank || "·"}</span>
+      <a class="search-item-title" href="${it.url}" target="_blank" rel="noopener"
+         onclick="trackHistory('${esc(it.title)}','${esc(it.url)}','${it.pid}')">
+        ${esc(it.title).replace(hlRe, '<mark class="hl">$1</mark>')}
+      </a>
+      <span class="search-item-plat" style="background:${it.platColor}">${esc(it.platLabel)}</span>
+    </div>`
+  ).join("");
+}
+
+// ════════════════════════════════════════════════════════════
 // 初始化
 // ════════════════════════════════════════════════════════════
 (function init() {
   updateAuthUI();
   renderPlatTabs();
   refreshCurrent();
+
+  // 搜索框事件绑定
+  const sbox = document.getElementById("globalSearch");
+  sbox.addEventListener("input", e => onSearchInput(e.target.value));
+  sbox.addEventListener("keydown", e => {
+    if (e.key === "Escape") { clearSearch(); e.preventDefault(); }
+    if (e.key === "Enter") {
+      // 回车：在新标签打开第一条匹配结果
+      const first = document.querySelector(".search-item-title");
+      if (first) { window.open(first.href, "_blank", "noopener"); }
+    }
+  });
+  // 快捷键：按 / 聚焦搜索框
+  document.addEventListener("keydown", e => {
+    if (e.key === "/" && document.activeElement.tagName !== "INPUT"
+        && document.activeElement.tagName !== "TEXTAREA") {
+      sbox.focus(); e.preventDefault();
+    }
+  });
 })();
 </script>
 </body>
