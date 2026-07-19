@@ -1,0 +1,23 @@
+[Unit]
+Description=HotNews Flask App
+After=network.target
+
+[Service]
+User=www-hotnews
+Group=www-hotnews
+WorkingDirectory=/opt/hotnews
+ExecStart=/opt/hotnews/venv/bin/gunicorn app:app \
+    --bind 127.0.0.1:8000 \
+    --workers 2 \
+    --threads 4 \
+    --timeout 90 \
+    --access-logfile /var/log/hotnews/access.log \
+    --error-logfile /var/log/hotnews/error.log
+Environment=SECRET_KEY=KivRY0rYD5vBfxUhnRnqxDUdC8GeNogizpg8T9J9eHg
+Environment=DB_PATH=/opt/hotnews/data/hotnews.db
+Environment=CACHE_TTL=180
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
