@@ -2,6 +2,8 @@
 
 实时聚合 **30+ 平台** 的热点榜单，涵盖综合新闻、科技、娱乐、财经、军事、体育六大分类。
 
+**在线体验：** [https://hotnews-top.onrender.com](https://hotnews-top.onrender.com)
+
 ### 支持平台
 
 | 分类 | 平台 |
