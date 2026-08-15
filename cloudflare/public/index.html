@@ -373,6 +373,38 @@
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
+    /* ═══ 自定义背景图（半透明 + 毛玻璃）══════════════════ */
+    body.bg-on::before {
+      content: ""; position: fixed; inset: 0; z-index: -1;
+      background-image: var(--bg-img); background-size: cover; background-position: center;
+      opacity: var(--bg-opacity, .18);
+      filter: blur(3px) saturate(1.05);
+      transition: opacity .3s;
+    }
+    /* 有背景时主要面板毛玻璃化，内容保持可读 */
+    body.bg-on .card, body.bg-on .hotboard-card, body.bg-on .stats-bar,
+    body.bg-on .search-results, body.bg-on .failed-section,
+    body.bg-on .modal, body.bg-on .drawer, body.bg-on .share-popup {
+      background: color-mix(in srgb, var(--surface) 84%, transparent);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+    body.bg-on header { background: color-mix(in srgb, var(--header-bg) 76%, transparent); }
+    body.bg-on .search-box { background: color-mix(in srgb, var(--surface) 84%, transparent); backdrop-filter: blur(12px); }
+
+    /* 背景设置面板 */
+    .bg-panel-row { display: flex; align-items: center; gap: .6rem; margin: .7rem 0; flex-wrap: wrap; }
+    .bg-panel-label { font-size: .78rem; color: var(--sub); min-width: 3.4em; }
+    .bg-tip { font-size: .7rem; color: var(--muted); margin-top: .6rem; line-height: 1.6; }
+    .bg-range { flex: 1; accent-color: var(--accent); min-width: 140px; }
+    .bg-thumbs { display: flex; gap: .4rem; margin: .5rem 0; flex-wrap: wrap; max-height: 132px; overflow-y: auto; }
+    .bg-thumb {
+      width: 56px; height: 38px; border-radius: 6px; background-size: cover; background-position: center;
+      cursor: pointer; border: 2px solid transparent; transition: border-color .15s, transform .15s; flex-shrink: 0;
+    }
+    .bg-thumb:hover { transform: scale(1.06); }
+    .bg-thumb.active { border-color: var(--accent); }
+
     /* ═══ 移动端 ════════════════════════════════════════ */
     @media (max-width: 1024px) {
       .news-grid { grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
@@ -429,6 +461,7 @@
 
     <div class="header-tools">
       <button class="icon-btn icon-only" id="themeBtn" onclick="toggleTheme()" title="切换亮/暗主题" aria-label="切换主题">🌙</button>
+      <button class="icon-btn icon-only" id="bgBtn" onclick="openBgPanel()" title="设置背景图" aria-label="背景图">🖼️</button>
       <button class="icon-btn" id="refreshBtn" onclick="refreshCurrent(true)" aria-label="刷新">
         <span id="spinIcon">↻</span><span class="btn-text"> 刷新</span>
       </button>
@@ -504,6 +537,35 @@
 </main>
 
 <button id="backTop" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="回到顶部">↑</button>
+
+<!-- ═══ 背景图设置 ═════════════════════════════════════ -->
+<div class="modal-overlay" id="bgModal" onclick="if(event.target.id==='bgModal')closeBgPanel()">
+  <div class="modal" style="width:440px">
+    <h3>🖼️ 背景图</h3>
+    <div class="bg-panel-row">
+      <button class="icon-btn" onclick="document.getElementById('bgFolderInput').click()">📁 选择图片文件夹</button>
+      <button class="icon-btn" onclick="document.getElementById('bgFileInput').click()">🖼 选几张图</button>
+      <input type="file" id="bgFolderInput" webkitdirectory multiple accept="image/*" style="display:none" />
+      <input type="file" id="bgFileInput" multiple accept="image/*" style="display:none" />
+    </div>
+    <div id="bgStatus" style="font-size:.72rem;color:var(--muted);min-height:1.2em"></div>
+    <div class="bg-thumbs" id="bgThumbs"></div>
+    <div class="bg-panel-row">
+      <span class="bg-panel-label">透明度</span>
+      <input type="range" id="bgOpacity" class="bg-range" min="5" max="60" value="18"
+             oninput="setBgOpacity(this.value)" />
+      <span id="bgOpacityVal" style="font-size:.72rem;color:var(--muted);min-width:2.6em">18%</span>
+    </div>
+    <div class="modal-footer" style="justify-content:space-between">
+      <button class="icon-btn danger" onclick="clearBgImages()">🗑 全部删除</button>
+      <div style="display:flex;gap:.5rem">
+        <button class="icon-btn" onclick="closeBgPanel()">完成</button>
+      </div>
+    </div>
+    <div class="bg-tip">图片只保存在<b>你自己的浏览器</b>里（IndexedDB），不会上传。<br/>
+      文件夹会自动抽样导入最多 60 张；透明度建议 15%~25%，太亮会影响阅读。</div>
+  </div>
+</div>
 
 <!-- ═══ 登录/注册 ══════════════════════════════════════ -->
 <div class="modal-overlay" id="authModal" onclick="closeModalOnBg(event)">
@@ -1330,6 +1392,164 @@ window.addEventListener("scroll", () => {
 }, { passive: true });
 
 // ══════════════════════════════════════════════════════
+// 自定义背景图（图片存浏览器 IndexedDB，不上传）
+// ══════════════════════════════════════════════════════
+const BG_MAX_IMPORT = 60;        // 文件夹抽样上限（1366 张全存会撑爆）
+const BG_SETTINGS_KEY = "hn_bg_settings";
+
+function bgSettings() {
+  try { return JSON.parse(localStorage.getItem(BG_SETTINGS_KEY)) || {}; } catch { return {}; }
+}
+function bgSaveSettings(s) {
+  localStorage.setItem(BG_SETTINGS_KEY, JSON.stringify({ ...bgSettings(), ...s }));
+}
+
+// IndexedDB 简易封装（库名 hotnews-bg，表 images: {id, blob}）
+function bgDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("hotnews-bg", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("images", { keyPath: "id", autoIncrement: true });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function bgPut(blob) {
+  const db = await bgDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("images", "readwrite");
+    tx.objectStore("images").add({ blob });
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+async function bgAll() {
+  const db = await bgDB();
+  return new Promise((res, rej) => {
+    const req = db.transaction("images").objectStore("images").getAll();
+    req.onsuccess = () => res(req.result || []);
+    req.onerror = () => rej(req.error);
+  });
+}
+async function bgClear() {
+  const db = await bgDB();
+  return new Promise((res) => {
+    const tx = db.transaction("images", "readwrite");
+    tx.objectStore("images").clear();
+    tx.oncomplete = () => res();
+    tx.onerror = () => res();
+  });
+}
+
+// 压缩：最长边 1600px、jpeg 82%（几十 KB 的剧照不再二次放大）
+function bgCompress(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      canvas.toBlob((b) => resolve(b || file.slice(0, file.size, file.type)), "image/jpeg", .82);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
+
+// 导入：文件多时按文件名排序后均匀抽样
+async function bgImport(fileList, sample) {
+  const status = document.getElementById("bgStatus");
+  let files = [...fileList].filter(f => /^image\//.test(f.type));
+  if (!files.length) { status.textContent = "没有找到图片"; return; }
+  status.textContent = `发现 ${files.length} 张图片，处理中…`;
+  files.sort((a, b) => (a.webkitRelativePath || a.name).localeCompare(b.webkitRelativePath || b.name));
+  if (sample && files.length > BG_MAX_IMPORT) {
+    const step = files.length / BG_MAX_IMPORT;
+    files = Array.from({ length: BG_MAX_IMPORT }, (_, i) => files[Math.floor(i * step)]);
+  }
+  let ok = 0;
+  for (const f of files) {
+    const blob = await bgCompress(f);
+    if (blob) { await bgPut(blob); ok++; }
+  }
+  status.textContent = `已导入 ${ok} 张` + (sample && ok >= BG_MAX_IMPORT ? `（从更多图片中抽样）` : "");
+  // 若当前没启用背景，自动启用第一张
+  const s = bgSettings();
+  if (!s.on) {
+    const all = await bgAll();
+    if (all.length) { bgSaveSettings({ on: true, id: all[0].id }); }
+  }
+  applyBackground();
+  renderBgThumbs();
+}
+
+let _bgUrl = null;
+async function applyBackground() {
+  const s = bgSettings();
+  const body = document.body;
+  if (!s.on || !s.id) { body.classList.remove("bg-on"); return; }
+  try {
+    const all = await bgAll();
+    const item = all.find(x => x.id === s.id);
+    if (!item) { body.classList.remove("bg-on"); return; }
+    if (_bgUrl) URL.revokeObjectURL(_bgUrl);
+    _bgUrl = URL.createObjectURL(item.blob);
+    body.style.setProperty("--bg-img", `url("${_bgUrl}")`);
+    body.style.setProperty("--bg-opacity", (s.opacity ?? .18));
+    body.classList.add("bg-on");
+  } catch { body.classList.remove("bg-on"); }
+}
+
+const bgThumbCache = new Map();
+async function renderBgThumbs() {
+  const wrap = document.getElementById("bgThumbs");
+  const s = bgSettings();
+  try {
+    const all = await bgAll();
+    wrap.innerHTML = all.map(x => {
+      if (!bgThumbCache.has(x.id)) bgThumbCache.set(x.id, URL.createObjectURL(x.blob));
+      return `<div class="bg-thumb${x.id === s.id ? " active" : ""}" style="background-image:url('${bgThumbCache.get(x.id)}')"
+        onclick="pickBg(${x.id})" title="设为背景"></div>`;
+    }).join("") || `<div style="font-size:.74rem;color:var(--muted);padding:.4rem 0">还没有图片，先选个文件夹吧</div>`;
+  } catch {
+    wrap.innerHTML = `<div style="font-size:.74rem;color:var(--muted)">当前环境不支持本地存储</div>`;
+  }
+}
+
+function openBgPanel() {
+  document.getElementById("bgModal").classList.add("open");
+  const s = bgSettings();
+  const slider = document.getElementById("bgOpacity");
+  slider.value = Math.round((s.opacity ?? .18) * 100);
+  document.getElementById("bgOpacityVal").textContent = slider.value + "%";
+  renderBgThumbs();
+}
+function closeBgPanel() { document.getElementById("bgModal").classList.remove("open"); }
+function pickBg(id) {
+  bgSaveSettings({ on: true, id });
+  applyBackground();
+  renderBgThumbs();
+}
+function setBgOpacity(v) {
+  document.getElementById("bgOpacityVal").textContent = v + "%";
+  document.body.style.setProperty("--bg-opacity", v / 100);
+  bgSaveSettings({ opacity: v / 100 });
+}
+async function clearBgImages() {
+  if (!confirm("删除全部已导入的背景图并关闭背景？")) return;
+  await bgClear();
+  bgThumbCache.forEach(u => URL.revokeObjectURL(u));
+  bgThumbCache.clear();
+  localStorage.removeItem(BG_SETTINGS_KEY);
+  document.body.classList.remove("bg-on");
+  document.getElementById("bgStatus").textContent = "";
+  renderBgThumbs();
+}
+
+// ══════════════════════════════════════════════════════
 // 初始化
 // ══════════════════════════════════════════════════════
 (function init() {
@@ -1355,6 +1575,11 @@ window.addEventListener("scroll", () => {
       sbox.focus(); e.preventDefault();
     }
   });
+
+  // 背景图：恢复上次设置 + 绑定导入入口
+  applyBackground();
+  document.getElementById("bgFolderInput").addEventListener("change", e => { bgImport(e.target.files, true); e.target.value = ""; });
+  document.getElementById("bgFileInput").addEventListener("change", e => { bgImport(e.target.files, false); e.target.value = ""; });
 })();
 </script>
 </body>

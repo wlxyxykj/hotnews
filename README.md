@@ -1,140 +1,64 @@
 # 热点聚合
 
-实时聚合 **30+ 平台** 的热点榜单，涵盖综合新闻、科技、娱乐、财经、军事、体育六大分类。
+自己用的热搜聚合小站。平时想知道"现在大家在关注什么"，要开微博开百度开知乎挨个看，烦，就写了个东西把四十多个平台的热榜攒到一个页面里。
 
-**在线体验：** [https://hotnews-top.onrender.com](https://hotnews-top.onrender.com)
+打开默认是一张「全网热榜」：把微博、百度、抖音、头条、知乎、B站、贴吧的实时榜单按热度加权合成一张总榜，同一条新闻上了好几个榜会自动合并，标签上能看到它都上了哪几家。想看单个平台就点下面的分类慢慢刷。
 
-### 支持平台
-
-| 分类 | 平台 |
+| | |
 |---|---|
-| 综合 | 微博热搜、腾讯新闻、百度热搜、抖音热搜、今日头条、网易新闻、新浪新闻、澎湃新闻、知乎热搜、B站排行、人民日报、央视新闻、新华社 |
-| 科技 | 36氪、虎嗅、爱范儿、少数派、IT之家、GitHub趋势 |
-| 娱乐 | 豆瓣电影、猫眼电影、微博娱乐、新浪娱乐、凤凰娱乐 |
-| 财经 | 财新、第一财经、界面新闻、华尔街见闻、东方财富 |
-| 军事国际 | 观察者网、环球时报、参考消息 |
-| 体育 | 虎扑、懂球帝、央视体育 |
+| ![亮色](docs/screenshots/light.png) | ![暗色](docs/screenshots/dark.png) |
+| ![分类](docs/screenshots/grid.png) | ![手机](docs/screenshots/mobile.png) |
 
----
+在线体验（Render 免费层，偶尔慢）：https://hotnews-top.onrender.com
 
-## 快速开始
+## 都有些什么
 
-### 方式一：本地运行（推荐）
+- 40 来个平台，综合 / 科技 / 娱乐 / 财经 / 军事国际 / 体育六个分类，贴吧热议、掘金、开源中国、钛媒体这些是后来加的
+- 亮暗两个主题，跟系统走，也能手动切
+- 自定义背景图：点右上角 🖼️ 选个图片文件夹（比如自己收藏的剧照），半透明垫在底下，透明度随便调。图片只存在你浏览器本地，不会上传
+- 全局搜索：在已经加载的榜单里搜关键词，按 `/` 直达搜索框
+- 收藏和浏览历史，注册个账号就能用（可选功能，见下面部署说明）
+- 抓取挂了不会给你看白板：每个源都有备选接口，实在不行就把 6 小时内的旧数据顶着用，标个「延迟」，不装没事
+
+## 跑起来
+
+**最省事，本地跑（Python）**
 
 ```bash
-# 1. 安装依赖
 pip install -r requirements.txt
-
-# 2. 启动
 python app.py
-
-# 3. 浏览器访问 http://127.0.0.1:5000
 ```
 
-### 方式二：一键启动（Windows）
+浏览器开 http://127.0.0.1:5000 。Windows 直接双击 `start.bat` 也行。
 
-双击 `start.bat`，自动创建虚拟环境、安装依赖并打开浏览器。
+**部署到 Cloudflare（推荐，免费）**
 
-### 方式三：桌面应用（Windows）
-
-`dist/HotNews.exe` 是打包好的桌面应用，双击运行，无需安装 Python。
-
-如需重新打包：
+之前挂在 Render 上，免费实例一刻钟没人访问就睡死，再打开要等半分钟。后来把后端用 JS 重写了一遍搬到 Cloudflare Workers 上（Python 没法直接跑在 Workers 里），顺便用它的定时任务每 3 分钟把数据预热好，打开就是现成的，全球都快：
 
 ```bash
-pip install pyinstaller pywebview
-pyinstaller 热点聚合.spec
+cd cloudflare
+npm install
+npx wrangler login
+npm run setup
 ```
 
----
+会自动建缓存、填配置、部署，最后给你一个 `*.workers.dev` 的地址。详细说明和踩坑记录在 [cloudflare/README.md](cloudflare/README.md) 和 [cloudflare/DEPLOY.md](cloudflare/DEPLOY.md)。
 
-## API 文档
+两个提醒（都是实测踩过的）：
 
-| 端点 | 方法 | 说明 |
-|---|---|---|
-| `/api/news/<platform>` | GET | 获取单个平台热点（如 `/api/news/weibo`） |
-| `/api/news/batch?category=综合` | GET | 批量获取某分类下所有平台热点 |
-| `/api/categories` | GET | 获取所有分类及包含的平台列表 |
-| `/api/platforms` | GET | 获取所有平台名称和状态 |
-| `/api/health` | GET | 健康检查，返回各平台缓存命中率 |
-| `/api/refresh` | POST | 手动触发全平台数据刷新（异步） |
-| `/api/ping` | GET | 服务存活检测 |
+1. `workers.dev` 这个域在国内直连不了（被 DNS 污染，海外正常）。要国内稳定访问，绑个自己的域名就好，Worker 设置里点两下的事
+2. 账号收藏功能需要配一个免费的 D1 数据库，不配也不影响看新闻，只是登录按钮会提示未启用
 
-### 用户功能
+**还想要 Render 的话**也能用，配置文件都在。休眠问题已经用 Cloudflare Worker 的定时任务顺手解决了（每 3 分钟 ping 它一下），不用再去注册什么保活网站。
 
-| 端点 | 方法 | 说明 |
-|---|---|---|
-| `/api/auth/register` | POST | 注册（`{"username":"...","password":"..."}`） |
-| `/api/auth/login` | POST | 登录，返回 JWT token |
-| `/api/auth/me` | GET | 获取当前用户信息（需 Bearer token） |
-| `/api/favorites` | GET/POST | 查看/添加收藏 |
-| `/api/favorites/<id>` | DELETE | 删除收藏 |
-| `/api/history` | GET/POST/DELETE | 查看/记录/清空浏览历史 |
+## 接口
 
----
+`/api/news/batch?category=综合` 拿一整个分类，`/api/news/weibo` 拿单个平台，`/api/health` 看各源状态，加 `refresh=1` 强制刷新。收藏和历史就是普通的 `/api/favorites`、`/api/history`，带 token 的增删查。Python 版和 Cloudflare 版的接口一模一样。
 
-## 部署
+## 关于抓取
 
-### Render（免费，推荐）
+只读公开榜单页面，几分钟一次，不碰登录内容，也不存原文。有些站点反爬比较凶（虎嗅、36氪这类上过 WAF 的），挂了就挂了，页面上会如实标出来，不造假数据。有哪个源长期不可用，欢迎提 issue 或者 PR 加新的——`app.py` 里加一个 `_fetch_xxx` 函数注册一下就行，Python 和 JS 两边各写一份（`cloudflare/src/fetchers.js`），跑 `node cloudflare/test/fetchers.test.mjs` 能直接看成功率。
 
-1. Fork 本仓库到 GitHub
-2. 在 [render.com](https://render.com) 新建 Web Service，选择 Python 环境
-3. 配置：
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 90`
-4. 部署完成后获得 `https://xxx.onrender.com` 永久地址
+## License
 
-> 免费版 30 分钟无访问会自动休眠，首次访问需等待冷启动（约 10 秒）。
-
-### 阿里云 ECS（Linux）
-
-```bash
-# 将项目上传至 /opt/hotnews，然后执行：
-sudo bash deploy/setup.sh
-```
-
-脚本会自动完成：系统依赖安装 → Python 虚拟环境 → systemd 服务 → Nginx 反向代理 → HTTPS 证书。
-
----
-
-## 配置
-
-通过环境变量自定义：
-
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `PORT` | `5000` | 服务端口 |
-| `SECRET_KEY` | 内置默认值 | JWT 签名密钥（生产环境务必修改） |
-| `DB_PATH` | `hotnews.db` | SQLite 数据库路径 |
-| `CACHE_TTL` | `180` | 缓存有效期（秒） |
-| `SCRAPE_PROXY` | 无 | 爬虫代理（如 `http://127.0.0.1:7890`） |
-
----
-
-## 技术栈
-
-- **后端**: Flask + SQLite
-- **爬虫**: requests + BeautifulSoup + lxml
-- **前端**: 原生 HTML/CSS/JS（SPA，无框架）
-- **桌面端**: pywebview + PyInstaller
-- **部署**: Gunicorn + Nginx
-
-## 项目结构
-
-```
-hotnews/
-├── app.py              # Flask 后端 + 30+ 平台爬虫
-├── desktop.py          # 桌面应用启动器
-├── templates/
-│   └── index.html      # 前端 SPA 页面
-├── requirements.txt    # Python 依赖
-├── start.bat           # Windows 一键启动脚本
-├── Procfile            # Heroku/Render 进程配置
-├── deploy/
-│   ├── setup.sh        # ECS 一键部署脚本
-│   ├── hotnews.service # systemd 服务定义
-│   └── nginx-hotnews.conf  # Nginx 配置
-├── dist/
-│   └── HotNews.exe     # 打包好的 Windows 桌面应用
-└── 热点聚合.spec        # PyInstaller 打包配置
-```
+MIT，随便用。
