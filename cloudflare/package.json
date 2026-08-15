@@ -1,0 +1,15 @@
+{
+  "name": "hotnews-cloudflare",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "setup": "node scripts/deploy.mjs",
+    "deploy": "node scripts/deploy.mjs",
+    "test": "node test/fetchers.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

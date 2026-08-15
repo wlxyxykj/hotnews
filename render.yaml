@@ -1,12 +1,17 @@
-# Render 部署配置 - 热点聚合 v2.3
+# Render 部署配置 - 热点聚合 v3
 # 部署步骤：上传到 GitHub → Render 导入 → 自动部署
 #
 # ⚠ Keep-alive 防休眠说明：
 #   Render 免费实例 15 分钟无流量会休眠，下次访问需要冷启动约 30 秒。
-#   解决方案（二选一）：
-#   A) 使用 UptimeRobot（免费）：https://uptimerobot.com
+#   解决方案（三选一，可叠加）：
+#   A) 【推荐】本项目 Cloudflare Worker 版的 Cron 每 3 分钟自动 ping 本服务保活
+#      （见 cloudflare/src/index.js 的 cronRefresh；KEEPALIVE_URL 变量可改/置空关闭）
+#   B) 使用 UptimeRobot（免费）：https://uptimerobot.com
 #      新建 HTTP(S) Monitor，URL 填写你的 Render 地址/api/ping，间隔 5 分钟
-#   B) 前端已内置每 4.5 分钟 ping /api/ping，浏览器保持打开即可保活
+#   C) 前端已内置每 4.5 分钟 ping /api/ping，浏览器保持打开即可保活
+#
+# ⚠ 启动速度：单 worker + --preload 冷启动更快、内存减半，
+#   且避免多 worker 各自重复跑后台抓取线程（39 平台重复抓取易触发限流）
 #
 # ⚠ 海外 IP 限制说明：
 #   Render 新加坡节点访问部分国内站点（央视/新华社/知乎/头条/澎湃等）可能被封锁。
@@ -21,7 +26,7 @@ services:
     region: singapore
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 90
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 90 --preload
     healthCheckPath: /api/ping
     envVars:
       - key: PYTHON_VERSION

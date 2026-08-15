@@ -18,3 +18,14 @@ cloudflared.exe
 
 # macOS
 .DS_Store
+
+# cloudflare
+cloudflare/node_modules/
+cloudflare/.wrangler/
+cloudflare/.dev.vars
+
+# 桌面打包产物（本地生成，不入库）
+dist/
+
+# 本地私有部署记录（含账号信息，勿入库）
+cloudflare/部署记录-勿提交.md

@@ -1,0 +1,1361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>热点聚合 · 全网热榜一站看</title>
+  <meta name="description" content="实时聚合 40+ 平台热搜榜单：微博、百度、抖音、知乎、B站、贴吧、掘金、GitHub……一亮一暗双主题，秒开。" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ff8a3d'/%3E%3Cstop offset='1' stop-color='%23ff4d4f'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' rx='24' fill='url(%23g)'/%3E%3Ctext x='50' y='68' font-size='52' text-anchor='middle'%3E🔥%3C/text%3E%3C/svg%3E" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    /* ═══ 设计令牌：双主题 ═══════════════════════════════ */
+    :root {
+      --radius: 14px;
+      --radius-sm: 10px;
+      --accent: #4f6ef7;
+      --accent-soft: rgba(79, 110, 247, .1);
+      --gold: #f5a623; --silver: #9aa7bd; --bronze: #cd8b4e;
+      --green: #22c08a; --red: #ef5350; --amber: #f5a623;
+      --brand-grad: linear-gradient(135deg, #ff8a3d 0%, #ff4d4f 100%);
+      --shadow-1: 0 1px 2px rgba(16, 24, 40, .04), 0 1px 6px rgba(16, 24, 40, .05);
+      --shadow-2: 0 6px 22px rgba(16, 24, 40, .09);
+      --skel-grad: linear-gradient(100deg, transparent 30%, rgba(148,163,184,.14) 50%, transparent 70%);
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+    html[data-theme="dark"] {
+      --bg: #0b0f1a;
+      --bg-soft: #0e1424;
+      --surface: #121a2c;
+      --surface-2: #1a2440;
+      --surface-3: #222e4d;
+      --border: #1f2b49;
+      --text: #e7ecf6;
+      --muted: #8391ad;
+      --sub: #aab6cf;
+      --header-bg: rgba(11, 15, 26, .82);
+      --hover: rgba(79, 110, 247, .07);
+      --shadow-1: 0 1px 2px rgba(0,0,0,.25), 0 1px 8px rgba(0,0,0,.3);
+      --shadow-2: 0 10px 30px rgba(0,0,0,.45);
+      color-scheme: dark;
+    }
+    html[data-theme="light"] {
+      --bg: #f4f6fb;
+      --bg-soft: #eef1f8;
+      --surface: #ffffff;
+      --surface-2: #f2f4fa;
+      --surface-3: #e8ecf5;
+      --border: #e5e9f2;
+      --text: #1b2540;
+      --muted: #71809e;
+      --sub: #4c5a78;
+      --header-bg: rgba(255, 255, 255, .85);
+      --hover: rgba(79, 110, 247, .06);
+      color-scheme: light;
+    }
+
+    html { font-size: 15px; scroll-behavior: smooth; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      transition: background .25s, color .25s;
+    }
+    a { color: inherit; }
+    button { font-family: inherit; }
+    ::selection { background: rgba(79,110,247,.25); }
+
+    /* ═══ HEADER ═════════════════════════════════════════ */
+    header {
+      position: sticky; top: 0; z-index: 200;
+      background: var(--header-bg);
+      backdrop-filter: blur(16px) saturate(1.4);
+      -webkit-backdrop-filter: blur(16px) saturate(1.4);
+      border-bottom: 1px solid var(--border);
+    }
+    .header-inner {
+      max-width: 1400px; margin: 0 auto;
+      display: flex; align-items: center; gap: 1rem;
+      height: 58px; padding: 0 1.4rem;
+    }
+    .logo { display: flex; align-items: center; gap: .55rem; white-space: nowrap; flex-shrink: 0; cursor: pointer; user-select: none; }
+    .logo-tile {
+      width: 30px; height: 30px; border-radius: 9px;
+      background: var(--brand-grad);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      box-shadow: 0 3px 10px rgba(255, 92, 61, .35);
+    }
+    .logo-text { font-size: 1.02rem; font-weight: 800; letter-spacing: .02em; }
+    .logo-text b { color: var(--accent); }
+
+    .cat-nav { display: flex; align-items: center; gap: .2rem; overflow-x: auto; scrollbar-width: none; flex: 1; }
+    .cat-nav::-webkit-scrollbar { display: none; }
+    .cat-btn {
+      display: inline-flex; align-items: center; gap: .28rem;
+      padding: .34rem .8rem; border-radius: 999px;
+      border: 1px solid transparent; background: transparent;
+      color: var(--muted); font-size: .8rem; font-weight: 500;
+      cursor: pointer; white-space: nowrap; transition: all .18s;
+    }
+    .cat-btn:hover { background: var(--surface-2); color: var(--text); }
+    .cat-btn.active {
+      background: var(--accent); color: #fff; font-weight: 600;
+      box-shadow: 0 2px 10px rgba(79,110,247,.3);
+    }
+
+    .header-tools { display: flex; align-items: center; gap: .4rem; flex-shrink: 0; }
+    .icon-btn {
+      display: inline-flex; align-items: center; gap: .3rem;
+      padding: .36rem .7rem; border-radius: 9px;
+      border: 1px solid var(--border); background: var(--surface);
+      color: var(--sub); font-size: .78rem; cursor: pointer;
+      transition: all .16s; white-space: nowrap;
+    }
+    .icon-btn:hover { border-color: var(--accent); color: var(--text); }
+    .icon-btn.danger:hover { border-color: var(--red); color: var(--red); }
+    .icon-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .icon-btn.primary:hover { filter: brightness(1.08); }
+    .icon-btn:disabled { opacity: .45; cursor: not-allowed; }
+    .icon-btn.icon-only { padding: .36rem .5rem; font-size: .95rem; }
+    .spinning { display: inline-block; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ═══ MAIN ═══════════════════════════════════════════ */
+    main { max-width: 1400px; margin: 0 auto; padding: 1.1rem 1.4rem 4.5rem; }
+
+    /* 搜索 */
+    .search-wrap { position: relative; width: 100%; margin-bottom: .9rem; }
+    .search-box {
+      width: 100%; padding: .68rem 2.6rem .68rem 2.5rem;
+      border-radius: 12px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--text);
+      font-size: .9rem; outline: none; transition: border-color .15s, box-shadow .15s;
+    }
+    .search-box:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .search-box::placeholder { color: var(--muted); }
+    .search-icon { position: absolute; left: .85rem; top: 50%; transform: translateY(-50%); font-size: .95rem; opacity: .55; pointer-events: none; }
+    .search-clear {
+      position: absolute; right: .7rem; top: 50%; transform: translateY(-50%);
+      display: none; cursor: pointer; font-size: .8rem; color: var(--muted);
+      background: var(--surface-2); width: 1.35rem; height: 1.35rem;
+      border-radius: 50%; border: none; align-items: center; justify-content: center;
+    }
+    .search-clear.show { display: flex; }
+    .search-results {
+      display: none; margin-bottom: 1rem; overflow: hidden;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-1);
+    }
+    .search-results.show { display: block; animation: fadeUp .18s; }
+    .search-results-header { padding: .6rem 1rem; font-size: .78rem; color: var(--muted); border-bottom: 1px solid var(--border); background: var(--surface-2); }
+    .search-item { display: flex; align-items: center; gap: .6rem; padding: .55rem 1rem; border-bottom: 1px solid var(--border); transition: background .12s; }
+    .search-item:last-child { border-bottom: none; }
+    .search-item:hover { background: var(--hover); }
+    .search-item-rank { font-size: .7rem; color: var(--muted); min-width: 1.6rem; font-variant-numeric: tabular-nums; }
+    .search-item-title { flex: 1; font-size: .86rem; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .search-item-title:hover { color: var(--accent); }
+    .search-item-plat { font-size: .66rem; color: #fff; padding: .13rem .5rem; border-radius: 5px; white-space: nowrap; }
+    .search-empty { padding: 1.6rem; text-align: center; color: var(--muted); font-size: .84rem; }
+    mark.hl { background: rgba(245,166,35,.25); color: var(--gold); padding: 0 2px; border-radius: 3px; }
+
+    /* 状态条 */
+    .status-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: .4rem; }
+    .status-left { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+    .plat-tabs { display: flex; gap: .25rem; flex-wrap: wrap; align-items: center; }
+    .plat-tab {
+      padding: .22rem .62rem; border-radius: 999px; border: 1px solid var(--border);
+      background: transparent; color: var(--muted); font-size: .73rem; cursor: pointer; transition: all .14s;
+    }
+    .plat-tab:hover { background: var(--surface-2); color: var(--text); }
+    .plat-tab.active { color: #fff; border-color: transparent; }
+    .status-right { font-size: .72rem; color: var(--muted); display: flex; align-items: center; gap: .4rem; }
+    .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(34,192,138,.18); animation: breathe 2.4s ease-in-out infinite; }
+    @keyframes breathe { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+
+    /* ═══ 网格与卡片 ════════════════════════════════════ */
+    .news-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(322px, 1fr)); gap: 1rem; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); overflow: hidden;
+      box-shadow: var(--shadow-1);
+      transition: transform .18s, box-shadow .18s, border-color .18s;
+      display: flex; flex-direction: column;
+    }
+    .card:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); border-color: color-mix(in srgb, var(--pc) 38%, var(--border)); }
+    .card-head { display: flex; align-items: center; gap: .55rem; padding: .8rem .95rem .65rem; }
+    .plat-tile {
+      width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 15px;
+      background: color-mix(in srgb, var(--pc) 16%, transparent);
+    }
+    .card-name { font-size: .88rem; font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .badge { font-size: .64rem; padding: .14rem .48rem; border-radius: 999px; border: 1px solid; white-space: nowrap; font-weight: 500; }
+    .badge.rt { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); background: color-mix(in srgb, var(--green) 9%, transparent); }
+    .badge.nrt { color: var(--muted); border-color: var(--border); }
+    .badge.delay { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 10%, transparent); }
+    .badge.dead { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); background: color-mix(in srgb, var(--red) 8%, transparent); }
+    .card-link { font-size: .68rem; color: var(--muted); text-decoration: none; transition: color .13s; }
+    .card-link:hover { color: var(--accent); }
+
+    .news-list { list-style: none; flex: 1; padding: .15rem 0 .35rem; }
+    .news-item {
+      display: flex; align-items: center; gap: .55rem;
+      padding: .44rem .95rem; transition: background .12s;
+    }
+    .news-item:hover { background: var(--hover); }
+    .rank {
+      min-width: 19px; height: 19px; display: inline-flex; align-items: center; justify-content: center;
+      font-size: .7rem; font-weight: 700; color: var(--muted);
+      font-variant-numeric: tabular-nums; border-radius: 6px; flex-shrink: 0;
+    }
+    .rank.r1 { background: color-mix(in srgb, var(--gold) 18%, transparent); color: var(--gold); }
+    .rank.r2 { background: color-mix(in srgb, var(--silver) 18%, transparent); color: var(--silver); }
+    .rank.r3 { background: color-mix(in srgb, var(--bronze) 18%, transparent); color: var(--bronze); }
+    .news-link {
+      flex: 1; font-size: .84rem; line-height: 1.5; color: var(--text);
+      text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color .12s;
+    }
+    .news-link:hover { color: var(--accent); }
+    .item-actions { display: flex; align-items: center; gap: .3rem; flex-shrink: 0; }
+    .hot-tag { font-size: .67rem; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .hot-tag.hot1 { color: var(--gold); font-weight: 600; }
+    .fav-btn {
+      background: none; border: none; cursor: pointer; font-size: .82rem;
+      color: var(--muted); padding: .1rem; border-radius: 5px; transition: color .12s; line-height: 1;
+    }
+    .fav-btn:hover, .fav-btn.active { color: var(--gold); }
+
+    /* 卡片内骨架 */
+    .skel-line { height: 13px; border-radius: 6px; margin: .58rem .95rem; background: var(--surface-2); position: relative; overflow: hidden; }
+    .skel-line::after { content: ""; position: absolute; inset: 0; background: var(--skel-grad); animation: shimmer 1.4s infinite; }
+    .w82 { width: 82%; } .w64 { width: 64%; } .w73 { width: 73%; } .w55 { width: 55%; }
+    @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+    .empty-row { padding: 1.6rem 1rem; text-align: center; color: var(--muted); font-size: .8rem; display: flex; flex-direction: column; align-items: center; gap: .5rem; }
+    .empty-row .emo { font-size: 1.5rem; opacity: .8; }
+
+    /* ═══ 全网热榜（融合视图）════════════════════════════ */
+    .hotboard-wrap { max-width: 860px; margin: 0 auto; }
+    .hotboard-hero { text-align: center; padding: 1.4rem .6rem 1.1rem; }
+    .hotboard-hero .title { font-size: 1.5rem; font-weight: 800; letter-spacing: .01em; }
+    .hotboard-hero .title .grad { background: var(--brand-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .hotboard-hero .sub { font-size: .76rem; color: var(--muted); margin-top: .4rem; }
+    .hotboard-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow-1); overflow: hidden;
+    }
+    .hb-item {
+      display: flex; align-items: center; gap: .8rem;
+      padding: .62rem 1.1rem; border-bottom: 1px solid var(--border);
+      transition: background .12s; position: relative;
+    }
+    .hb-item:last-child { border-bottom: none; }
+    .hb-item:hover { background: var(--hover); }
+    .hb-rank {
+      min-width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+      font-size: .82rem; font-weight: 800; color: var(--muted);
+      font-variant-numeric: tabular-nums; border-radius: 8px; flex-shrink: 0;
+    }
+    .hb-rank.r1 { background: var(--brand-grad); color: #fff; box-shadow: 0 3px 10px rgba(255,92,61,.35); }
+    .hb-rank.r2 { background: color-mix(in srgb, var(--gold) 22%, transparent); color: var(--gold); }
+    .hb-rank.r3 { background: color-mix(in srgb, var(--bronze) 20%, transparent); color: var(--bronze); }
+    .hb-main { flex: 1; min-width: 0; }
+    .hb-title { font-size: .92rem; font-weight: 600; text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hb-title:hover { color: var(--accent); }
+    .hb-meta { display: flex; align-items: center; gap: .35rem; margin-top: .28rem; flex-wrap: wrap; }
+    .src-chip {
+      font-size: .62rem; padding: .1rem .42rem; border-radius: 4px; color: #fff;
+      white-space: nowrap; opacity: .92;
+    }
+    .src-chip.lead { outline: 1.5px solid rgba(255,255,255,.35); }
+    .hb-hot { font-size: .68rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; flex-shrink: 0; }
+    .hb-fav { background: none; border: none; cursor: pointer; font-size: .85rem; color: var(--muted); flex-shrink: 0; }
+    .hb-fav:hover, .hb-fav.active { color: var(--gold); }
+
+    /* ═══ 失败折叠区 ═════════════════════════════════════ */
+    .failed-section { margin-top: 1.4rem; border: 1px solid color-mix(in srgb, var(--red) 22%, var(--border)); border-radius: var(--radius); overflow: hidden; background: color-mix(in srgb, var(--red) 3%, var(--surface)); }
+    .failed-toggle { display: flex; align-items: center; justify-content: space-between; padding: .68rem 1rem; cursor: pointer; user-select: none; font-size: .78rem; color: var(--muted); transition: background .15s; }
+    .failed-toggle:hover { background: color-mix(in srgb, var(--red) 5%, transparent); }
+    .failed-toggle-left { display: flex; align-items: center; gap: .5rem; }
+    .failed-badge { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); border: 1px solid color-mix(in srgb, var(--red) 30%, transparent); border-radius: 999px; padding: .08rem .55rem; font-size: .7rem; }
+    .failed-arrow { transition: transform .2s; font-size: .72rem; }
+    .failed-arrow.open { transform: rotate(180deg); }
+    .failed-body { display: none; border-top: 1px solid color-mix(in srgb, var(--red) 14%, var(--border)); padding: .6rem; }
+    .failed-body.open { display: block; }
+    .failed-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .5rem; }
+    .failed-card { background: var(--surface); border: 1px solid color-mix(in srgb, var(--red) 14%, var(--border)); border-radius: var(--radius-sm); padding: .6rem .8rem; display: flex; flex-direction: column; gap: .3rem; }
+    .failed-card-name { display: flex; align-items: center; gap: .4rem; font-size: .8rem; font-weight: 600; }
+    .failed-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
+    .failed-card-note { font-size: .67rem; color: var(--muted); padding-left: .82rem; word-break: break-all; }
+    .retry-btn { font-size: .7rem; color: var(--text); cursor: pointer; background: var(--surface-3); border: 1px solid var(--border); padding: .22rem .6rem; border-radius: 999px; transition: all .15s; }
+    .retry-btn:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .retry-btn:disabled { opacity: .6; cursor: wait; }
+
+    /* ═══ 单平台全屏 ════════════════════════════════════ */
+    .full-view { display: none; }
+    .full-view.active { display: block; animation: fadeUp .2s; }
+    .full-view .card { max-width: 720px; margin: 0 auto; }
+    .full-view .news-item { padding: .5rem 1.3rem; }
+
+    /* ═══ 弹层/抽屉/Toast ═══════════════════════════════ */
+    .modal-overlay { display: none; position: fixed; inset: 0; z-index: 500; background: rgba(8, 12, 24, .55); backdrop-filter: blur(4px); align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; animation: fadeIn .18s; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; width: 380px; max-width: calc(100vw - 2rem); padding: 1.5rem; box-shadow: var(--shadow-2); }
+    .modal h3 { font-size: 1rem; margin-bottom: 1rem; }
+    .modal-tabs { display: flex; gap: .5rem; margin-bottom: .9rem; }
+    .modal-tab { flex: 1; padding: .42rem; border-radius: 9px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: .8rem; cursor: pointer; transition: all .15s; }
+    .modal-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .modal input { width: 100%; padding: .55rem .75rem; border-radius: 9px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-size: .86rem; margin-bottom: .6rem; outline: none; transition: border-color .15s; }
+    .modal input:focus { border-color: var(--accent); }
+    .modal-footer { display: flex; gap: .5rem; margin-top: .7rem; justify-content: flex-end; }
+    .modal-err { color: var(--red); font-size: .76rem; margin: -.25rem 0 .5rem; min-height: 1em; }
+
+    .user-menu-wrap { position: relative; }
+    .user-dropdown { display: none; position: absolute; top: calc(100% + 8px); right: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 11px; min-width: 160px; padding: .4rem 0; box-shadow: var(--shadow-2); z-index: 300; }
+    .user-dropdown.open { display: block; animation: fadeUp .15s; }
+    .user-dropdown a, .user-dropdown button { display: block; width: 100%; text-align: left; padding: .5rem 1rem; font-size: .8rem; color: var(--text); background: none; border: none; cursor: pointer; text-decoration: none; transition: background .12s; }
+    .user-dropdown a:hover, .user-dropdown button:hover { background: var(--hover); }
+    .user-dropdown .sep { border-top: 1px solid var(--border); margin: .3rem 0; }
+
+    .drawer-overlay { display: none; position: fixed; inset: 0; z-index: 400; background: rgba(8,12,24,.5); backdrop-filter: blur(3px); }
+    .drawer-overlay.open { display: block; animation: fadeIn .2s; }
+    .drawer { position: fixed; top: 0; right: -420px; bottom: 0; z-index: 401; width: 370px; max-width: 94vw; background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; transition: right .28s cubic-bezier(.4,0,.2,1); }
+    .drawer.open { right: 0; }
+    .drawer-head { display: flex; align-items: center; justify-content: space-between; padding: .95rem 1.15rem; border-bottom: 1px solid var(--border); }
+    .drawer-head h3 { font-size: .92rem; }
+    .drawer-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1.05rem; }
+    .drawer-tabs { display: flex; gap: .5rem; padding: .7rem 1rem .45rem; border-bottom: 1px solid var(--border); }
+    .drawer-tab { flex: 1; padding: .36rem; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: .76rem; cursor: pointer; transition: all .14s; }
+    .drawer-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .drawer-body { flex: 1; overflow-y: auto; padding: .4rem 0; }
+    .drawer-item { padding: .55rem 1.15rem; border-bottom: 1px solid var(--border); transition: background .12s; }
+    .drawer-item:hover { background: var(--hover); }
+    .drawer-item a { font-size: .82rem; color: var(--text); text-decoration: none; display: block; line-height: 1.5; word-break: break-all; }
+    .drawer-item a:hover { color: var(--accent); }
+    .drawer-item .di-meta { font-size: .67rem; color: var(--muted); margin-top: .2rem; display: flex; gap: .5rem; align-items: center; }
+    .drawer-item .di-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: .74rem; }
+    .drawer-item .di-del:hover { color: var(--red); }
+    .drawer-footer { padding: .7rem 1.15rem; border-top: 1px solid var(--border); }
+    .drawer-empty { padding: 2.4rem 1rem; text-align: center; color: var(--muted); font-size: .82rem; }
+
+    #toast { position: fixed; bottom: 2.2rem; left: 50%; transform: translateX(-50%); background: var(--surface-3); border: 1px solid var(--border); color: var(--text); font-size: .8rem; padding: .55rem 1.15rem; border-radius: 999px; z-index: 600; opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; box-shadow: var(--shadow-2); }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(-3px); }
+
+    /* 分享面板 */
+    .share-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 440; }
+    .share-overlay.open { display: block; }
+    .share-popup { display: none; position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--border); border-radius: 18px 18px 0 0; width: 420px; max-width: 100vw; padding: 1.15rem 1.15rem calc(1rem + env(safe-area-inset-bottom, 0px)); box-shadow: 0 -12px 44px rgba(0,0,0,.3); z-index: 450; }
+    .share-popup.open { display: block; animation: slideUp .24s ease; }
+    @keyframes slideUp { from { opacity: 0; transform: translateX(-50%) translateY(24px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+    .share-title { font-size: .84rem; color: var(--muted); text-align: center; margin-bottom: 1rem; }
+    .share-grid { display: flex; justify-content: center; gap: 1.15rem; flex-wrap: wrap; }
+    .share-item { display: flex; flex-direction: column; align-items: center; gap: .35rem; cursor: pointer; transition: transform .15s; }
+    .share-item:hover { transform: translateY(-3px); }
+    .share-item:active { transform: scale(.95); }
+    .share-icon { width: 47px; height: 47px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.45rem; }
+    .share-label { font-size: .67rem; color: var(--muted); }
+    .share-divider { border-top: 1px solid var(--border); margin: .8rem 0 .5rem; }
+    .share-close { width: 100%; padding: .5rem; border-radius: 9px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-size: .8rem; cursor: pointer; }
+    .share-close:hover { background: var(--surface-3); }
+
+    /* 统计 + 回顶 */
+    .stats-bar { margin-top: 1.6rem; padding: .7rem 1rem; border-radius: var(--radius-sm); background: var(--surface); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; gap: 1.3rem; font-size: .73rem; color: var(--muted); flex-wrap: wrap; }
+    #backTop {
+      position: fixed; right: 1.2rem; bottom: 1.6rem; z-index: 350;
+      width: 38px; height: 38px; border-radius: 12px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--sub); font-size: 1rem; cursor: pointer;
+      box-shadow: var(--shadow-1); opacity: 0; pointer-events: none; transition: all .22s;
+    }
+    #backTop.show { opacity: 1; pointer-events: auto; }
+    #backTop:hover { border-color: var(--accent); color: var(--accent); }
+
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ═══ 移动端 ════════════════════════════════════════ */
+    @media (max-width: 1024px) {
+      .news-grid { grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      header { height: auto; }
+      .header-inner { flex-wrap: wrap; height: auto; padding: .5rem .8rem; gap: .35rem 0; }
+      .logo { order: 1; }
+      .logo-text { display: none; }
+      .header-tools { order: 2; margin-left: auto; gap: .3rem; }
+      .icon-btn .btn-text { display: none; }
+      .cat-nav { order: 3; flex: 1 0 100%; padding: .15rem 0 .1rem; -webkit-overflow-scrolling: touch; mask-image: linear-gradient(to right, #000 0, #000 90%, transparent 100%); }
+      main { padding: .8rem .8rem 4rem; }
+      .news-grid { grid-template-columns: 1fr; gap: .75rem; }
+      .status-bar { flex-direction: column; align-items: flex-start; }
+      .plat-tabs { overflow-x: auto; width: 100%; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; padding-bottom: .2rem; }
+      .plat-tab { flex-shrink: 0; }
+      .hb-item { padding: .58rem .8rem; gap: .6rem; }
+      .hb-title { font-size: .88rem; }
+      .drawer { width: 100%; max-width: 100%; }
+      .modal { width: 92%; }
+      .hotboard-hero .title { font-size: 1.25rem; }
+    }
+    @media (hover: none) and (pointer: coarse) {
+      * { -webkit-tap-highlight-color: transparent; }
+      .card:hover { transform: none; }
+      .news-item:active, .hb-item:active { opacity: .7; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+  </style>
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+</head>
+<body>
+
+<!-- ═══ HEADER ═════════════════════════════════════════ -->
+<header>
+  <div class="header-inner">
+    <div class="logo" onclick="gotoHotboard()" title="回到全网热榜">
+      <div class="logo-tile">🔥</div>
+      <div class="logo-text">热点<b>聚合</b></div>
+    </div>
+
+    <nav class="cat-nav" id="catNav">
+      <button class="cat-btn active" data-cat="__hot">⚡ 全网热榜</button>
+      <button class="cat-btn" data-cat="综合">🌐 综合</button>
+      <button class="cat-btn" data-cat="科技">💻 科技</button>
+      <button class="cat-btn" data-cat="娱乐">🎬 娱乐</button>
+      <button class="cat-btn" data-cat="财经">📈 财经</button>
+      <button class="cat-btn" data-cat="军事国际">🌍 军事国际</button>
+      <button class="cat-btn" data-cat="体育">⚽ 体育</button>
+    </nav>
+
+    <div class="header-tools">
+      <button class="icon-btn icon-only" id="themeBtn" onclick="toggleTheme()" title="切换亮/暗主题" aria-label="切换主题">🌙</button>
+      <button class="icon-btn" id="refreshBtn" onclick="refreshCurrent(true)" aria-label="刷新">
+        <span id="spinIcon">↻</span><span class="btn-text"> 刷新</span>
+      </button>
+      <button class="icon-btn" id="shareBtn" onclick="openShare()" aria-label="分享">
+        🔗<span class="btn-text"> 分享</span>
+      </button>
+      <button class="icon-btn primary" id="loginBtn" onclick="openAuthModal()">登录</button>
+      <div class="user-menu-wrap" id="userMenu" style="display:none">
+        <button class="icon-btn" id="userNameBtn" onclick="toggleUserMenu()">👤 <span id="userNameText"></span> ▾</button>
+        <div class="user-dropdown" id="userDropdown">
+          <a href="#" onclick="openDrawer('fav');return false">⭐ 我的收藏</a>
+          <a href="#" onclick="openDrawer('history');return false">🕒 浏览记录</a>
+          <div class="sep"></div>
+          <button onclick="logout()">退出登录</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ MAIN ═══════════════════════════════════════════ -->
+<main>
+  <div class="search-wrap">
+    <span class="search-icon">🔎</span>
+    <input type="text" id="globalSearch" class="search-box"
+           placeholder="搜索全部平台的热点标题…（按 / 聚焦，回车打开首条结果）"
+           autocomplete="off" />
+    <button class="search-clear" id="searchClear" onclick="clearSearch()">✕</button>
+  </div>
+  <div class="search-results" id="searchResults">
+    <div class="search-results-header" id="searchHeader"></div>
+    <div id="searchBody"></div>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-left"><div class="plat-tabs" id="platTabs"></div></div>
+    <div class="status-right"><span class="live-dot"></span><span id="updateTime">正在加载…</span></div>
+  </div>
+
+  <!-- 全网热榜（融合视图） -->
+  <div class="hotboard-wrap" id="hotboardView" style="display:none">
+    <div class="hotboard-hero">
+      <div class="title">⚡ 全网<span class="grad">热榜</span></div>
+      <div class="sub" id="hotboardSub">融合微博 / 百度 / 抖音 / 头条 / 知乎 / B站 / 贴吧 的实时热搜</div>
+    </div>
+    <div class="hotboard-card" id="hotboardCard"></div>
+  </div>
+
+  <!-- 平台网格 -->
+  <div class="news-grid" id="newsGrid"></div>
+
+  <!-- 单平台全屏 -->
+  <div class="full-view" id="fullView"><div class="card" id="fullCard"></div></div>
+
+  <!-- 失败平台折叠区 -->
+  <div id="failedSection" class="failed-section" style="display:none">
+    <div class="failed-toggle" onclick="toggleFailed()">
+      <div class="failed-toggle-left">
+        <span>⚠️</span>
+        <span id="failedLabel">以下平台暂时无法抓取（点击展开）</span>
+        <span class="failed-badge" id="failedBadge">0</span>
+      </div>
+      <span class="failed-arrow" id="failedArrow">▼</span>
+    </div>
+    <div class="failed-body" id="failedBody"><div class="failed-grid" id="failedGrid"></div></div>
+  </div>
+
+  <div class="stats-bar">
+    <span>👁️ 访问 <span id="busuanzi_value_site_pv"></span> 次</span>
+    <span>👤 访客 <span id="busuanzi_value_site_uv"></span> 人</span>
+    <span id="sourceCount">40+ 平台</span>
+  </div>
+</main>
+
+<button id="backTop" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="回到顶部">↑</button>
+
+<!-- ═══ 登录/注册 ══════════════════════════════════════ -->
+<div class="modal-overlay" id="authModal" onclick="closeModalOnBg(event)">
+  <div class="modal">
+    <h3>👤 账号</h3>
+    <div class="modal-tabs">
+      <button class="modal-tab active" onclick="switchAuthTab('login')">登录</button>
+      <button class="modal-tab" onclick="switchAuthTab('register')">注册</button>
+    </div>
+    <div id="authErr" class="modal-err"></div>
+    <input type="text" id="authUsername" placeholder="用户名" autocomplete="username" />
+    <input type="password" id="authPassword" placeholder="密码（至少 6 位）" autocomplete="current-password" />
+    <div class="modal-footer">
+      <button class="icon-btn" onclick="closeAuthModal()">取消</button>
+      <button class="icon-btn primary" id="authSubmitBtn" onclick="submitAuth()">登录</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 收藏/历史抽屉 ═════════════════════════════════ -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-head">
+    <h3 id="drawerTitle">收藏</h3>
+    <button class="drawer-close" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="drawer-tabs" id="drawerTabBar" style="display:none">
+    <button class="drawer-tab active" onclick="switchDrawerTab('fav')">⭐ 收藏</button>
+    <button class="drawer-tab" onclick="switchDrawerTab('history')">🕒 历史</button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+  <div class="drawer-footer" id="drawerFooter"></div>
+</div>
+
+<!-- ═══ 分享 ══════════════════════════════════════════ -->
+<div class="share-overlay" id="shareOverlay" onclick="closeShare()"></div>
+<div class="share-popup" id="sharePopup">
+  <div class="share-title">分享到</div>
+  <div class="share-grid">
+    <div class="share-item" onclick="shareNative()"><div class="share-icon" style="background:#07c160">💚</div><span class="share-label">微信</span></div>
+    <div class="share-item" onclick="shareQQ()"><div class="share-icon" style="background:#1296db">💬</div><span class="share-label">QQ</span></div>
+    <div class="share-item" onclick="shareWeibo()"><div class="share-icon" style="background:#e6162d">🌊</div><span class="share-label">微博</span></div>
+    <div class="share-item" onclick="shareCopy()"><div class="share-icon" style="background:#3b82f6">🔗</div><span class="share-label">复制链接</span></div>
+  </div>
+  <div class="share-divider"></div>
+  <button class="share-close" onclick="closeShare()">取消</button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════
+// 平台元数据（与后端 registry 一致）
+// ══════════════════════════════════════════════════════
+const PLATFORM_META = {
+  weibo:      { label:"微博热搜",  color:"#ff6a3d", home:"https://s.weibo.com/top/summary",      emoji:"🌊" },
+  tencent:    { label:"腾讯新闻",  color:"#07c160", home:"https://news.qq.com/",                 emoji:"📰" },
+  toutiao:    { label:"今日头条",  color:"#ef4040", home:"https://www.toutiao.com/",             emoji:"📲" },
+  baidu:      { label:"百度热搜",  color:"#4e6ef2", home:"https://top.baidu.com/board?tab=realtime", emoji:"🔍" },
+  douyin:     { label:"抖音热搜",  color:"#1f1f2e", home:"https://www.douyin.com/hot",           emoji:"🎵" },
+  tieba:      { label:"贴吧热议",  color:"#4e9cf7", home:"https://tieba.baidu.com/hottopic/brower", emoji:"💬" },
+  wangyi:     { label:"网易新闻",  color:"#d43c33", home:"https://news.163.com/",                emoji:"📡" },
+  sina:       { label:"新浪新闻",  color:"#ff8a00", home:"https://news.sina.com.cn/",            emoji:"📢" },
+  rmrb:       { label:"人民日报",  color:"#c62828", home:"https://www.people.com.cn/",           emoji:"🗞️" },
+  cctv:       { label:"央视新闻",  color:"#2f6df6", home:"https://news.cctv.com/",               emoji:"📺" },
+  xinhua:     { label:"新华社",    color:"#b71c1c", home:"https://www.news.cn/",                 emoji:"📣" },
+  pengpai:    { label:"澎湃新闻",  color:"#3352a0", home:"https://www.thepaper.cn/",             emoji:"💧" },
+  zhihu:      { label:"知乎热搜",  color:"#0084ff", home:"https://www.zhihu.com/hot",            emoji:"🤔" },
+  bilibili:   { label:"B站排行",   color:"#fb7299", home:"https://www.bilibili.com/v/popular/rank/all", emoji:"📹" },
+  "36kr":     { label:"36氪",      color:"#268988", home:"https://36kr.com/",                    emoji:"🚀" },
+  huxiu:      { label:"虎嗅·雷锋", color:"#e63000", home:"https://www.huxiu.com/",               emoji:"🐯" },
+  juejin:     { label:"掘金热榜",  color:"#1e80ff", home:"https://juejin.cn/hot/articles",       emoji:"⛏️" },
+  oschina:    { label:"开源中国",  color:"#c31d1d", home:"https://www.oschina.net/news",        emoji:"🛠️" },
+  tmtpost:    { label:"钛媒体",    color:"#0f6fff", home:"https://www.tmtpost.com/",             emoji:"🔷" },
+  v2ex:       { label:"V2EX",      color:"#778899", home:"https://www.v2ex.com/?tab=hot",       emoji:"💬" },
+  ifanr:      { label:"爱范儿",    color:"#6366f1", home:"https://www.ifanr.com/",               emoji:"💡" },
+  sspai:      { label:"少数派",    color:"#d71d1d", home:"https://sspai.com/",                   emoji:"📱" },
+  ithome:     { label:"IT之家",    color:"#d22222", home:"https://www.ithome.com/",             emoji:"🖥️" },
+  github:     { label:"GitHub趋势",color:"#586069", home:"https://github.com/trending",         emoji:"🐙" },
+  douban:     { label:"豆瓣电影",  color:"#007722", home:"https://movie.douban.com/explore",    emoji:"🎬" },
+  maoyan:     { label:"猫眼电影",  color:"#ff3f3f", home:"https://www.maoyan.com/board/7",      emoji:"🐱" },
+  weibo_ent:  { label:"微博娱乐",  color:"#ff5c8d", home:"https://s.weibo.com/weibo?q=%23娱乐%23", emoji:"⭐" },
+  sina_ent:   { label:"新浪娱乐",  color:"#f97316", home:"https://ent.sina.com.cn/",            emoji:"🎤" },
+  ifeng_ent:  { label:"凤凰娱乐",  color:"#8b5cf6", home:"https://ent.ifeng.com/",              emoji:"🦅" },
+  caixin:     { label:"财新",      color:"#a05a1d", home:"https://www.caixin.com/",             emoji:"💰" },
+  yicai:      { label:"第一财经",  color:"#2a4a9a", home:"https://www.yicai.com/news/",          emoji:"📊" },
+  jiemian:    { label:"界面新闻",  color:"#1a9c8c", home:"https://www.jiemian.com/",            emoji:"📑" },
+  wallstreet: { label:"华尔街见闻",color:"#3467d6", home:"https://wallstreetcn.com/live/global", emoji:"🏦" },
+  xueqiu:     { label:"东方财富",  color:"#c80000", home:"https://www.eastmoney.com/",          emoji:"📈" },
+  guancha:    { label:"观察者网",  color:"#c0392b", home:"https://www.guancha.cn/",             emoji:"🔍" },
+  huanqiu:    { label:"环球时报",  color:"#7c3aed", home:"https://www.huanqiu.com/",            emoji:"🌏" },
+  cankaoxiaoxi:{label:"国际参考",  color:"#be185d", home:"https://www.news.cn/world/",          emoji:"🌐" },
+  hupu:       { label:"虎扑",      color:"#c92a2a", home:"https://bbs.hupu.com/all",            emoji:"🏀" },
+  dongqiudi:  { label:"懂球帝",    color:"#149e4c", home:"https://www.dongqiudi.com/",          emoji:"⚽" },
+  cctv_sports:{ label:"央视体育",  color:"#2f6df6", home:"https://sports.cctv.com/",            emoji:"🏅" },
+};
+
+const CATEGORIES = {
+  "综合":     ["weibo","tencent","baidu","douyin","tieba","toutiao","wangyi","sina","pengpai","zhihu","bilibili","rmrb","cctv","xinhua"],
+  "科技":     ["36kr","huxiu","juejin","oschina","tmtpost","v2ex","ifanr","sspai","ithome","github"],
+  "娱乐":     ["douban","maoyan","weibo_ent","sina_ent","ifeng_ent"],
+  "财经":     ["caixin","yicai","jiemian","wallstreet","xueqiu"],
+  "军事国际": ["guancha","huanqiu","cankaoxiaoxi"],
+  "体育":     ["hupu","dongqiudi","cctv_sports"],
+};
+
+// 全网热榜融合源（按平台影响力加权，与实时性成正比）
+const MERGE_SOURCES = [
+  { pid:"weibo",    w:1.00 }, { pid:"baidu",   w:0.92 }, { pid:"douyin", w:0.88 },
+  { pid:"toutiao",  w:0.85 }, { pid:"zhihu",   w:0.82 }, { pid:"bilibili", w:0.74 },
+  { pid:"tieba",    w:0.70 }, { pid:"tencent", w:0.66 },
+];
+const MERGE_PIDS = MERGE_SOURCES.map(s => s.pid);
+const HOT_CAT = "__hot";
+
+// ══════════════════════════════════════════════════════
+// 状态
+// ══════════════════════════════════════════════════════
+let currentCat = HOT_CAT;      // "__hot" = 全网热榜融合视图
+let currentPlat = null;
+let newsCache = {};            // { pid: {items, is_realtime, fetched_at, update_note, status, update_note} }
+let catMeta = {};              // { cat: { fetchTime, failed: [] } }
+let failedPlatforms = [];
+let loading = false;
+let authToken = localStorage.getItem("hn_token") || "";
+let authUser  = JSON.parse(localStorage.getItem("hn_user") || "null");
+let authMode  = "login";
+let favIds    = new Set();
+let drawerMode = "fav";
+let userMenuOpen = false;
+
+const CACHE_TTL = 5 * 60 * 1000;
+const LS_KEY = "hn_news_cache_v3";
+
+// ══════════════════════════════════════════════════════
+// 主题
+// ══════════════════════════════════════════════════════
+function applyTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  document.getElementById("themeBtn").textContent = t === "dark" ? "🌙" : "☀️";
+}
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute("data-theme");
+  const next = cur === "dark" ? "light" : "dark";
+  localStorage.setItem("hn_theme", next);
+  applyTheme(next);
+}
+(function initTheme() {
+  const saved = localStorage.getItem("hn_theme");
+  const sys = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", saved || sys);
+})();
+
+// ══════════════════════════════════════════════════════
+// 工具
+// ══════════════════════════════════════════════════════
+function esc(s) {
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+function rankCls(n) { return n<=3 ? `rank r${n}` : "rank"; }
+function hbRankCls(n) { return n<=3 ? `hb-rank r${n}` : "hb-rank"; }
+function showToast(msg, dur = 2200) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), dur);
+}
+// API 请求：501（云端未配 D1）等场景统一提示
+async function api(url, opts = {}) {
+  const resp = await fetch(url, opts);
+  if (resp.status === 501) {
+    let data = {}; try { data = await resp.json(); } catch {}
+    throw Object.assign(new Error(data.error || "此部署未启用账号功能"), { code: 501 });
+  }
+  return resp;
+}
+
+// ══════════════════════════════════════════════════════
+// 认证 UI
+// ══════════════════════════════════════════════════════
+function updateAuthUI() {
+  if (authUser) {
+    document.getElementById("loginBtn").style.display = "none";
+    document.getElementById("userMenu").style.display = "block";
+    document.getElementById("userNameText").textContent = authUser.username;
+    loadFavIds();
+  } else {
+    document.getElementById("loginBtn").style.display = "block";
+    document.getElementById("userMenu").style.display = "none";
+    favIds.clear(); refreshFavBtns();
+  }
+}
+function openAuthModal() {
+  document.getElementById("authModal").classList.add("open");
+  document.getElementById("authUsername").focus();
+  document.getElementById("authErr").textContent = "";
+}
+function closeAuthModal() { document.getElementById("authModal").classList.remove("open"); }
+function closeModalOnBg(e) { if (e.target.id === "authModal") closeAuthModal(); }
+function switchAuthTab(mode) {
+  authMode = mode;
+  document.querySelectorAll(".modal-tab").forEach((el, i) => {
+    el.classList.toggle("active", (i === 0 && mode === "login") || (i === 1 && mode === "register"));
+  });
+  document.getElementById("authSubmitBtn").textContent = mode === "login" ? "登录" : "注册";
+  document.getElementById("authErr").textContent = "";
+}
+async function submitAuth() {
+  const username = document.getElementById("authUsername").value.trim();
+  const password = document.getElementById("authPassword").value;
+  const errEl = document.getElementById("authErr");
+  if (!username || !password) { errEl.textContent = "请填写完整"; return; }
+  const btn = document.getElementById("authSubmitBtn");
+  btn.disabled = true;
+  try {
+    const resp = await api(`/api/auth/${authMode}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { errEl.textContent = data.error || "操作失败"; return; }
+    authToken = data.token;
+    authUser = { username: data.username, user_id: data.user_id };
+    localStorage.setItem("hn_token", authToken);
+    localStorage.setItem("hn_user", JSON.stringify(authUser));
+    closeAuthModal(); updateAuthUI();
+    showToast("🎉 " + (authMode === "login" ? "登录成功" : "注册成功"));
+  } catch (e) {
+    errEl.textContent = e.code === 501 ? e.message : "网络错误，请重试";
+  } finally { btn.disabled = false; }
+}
+function logout() {
+  authToken = ""; authUser = null;
+  localStorage.removeItem("hn_token"); localStorage.removeItem("hn_user");
+  userMenuOpen = false;
+  document.getElementById("userDropdown").classList.remove("open");
+  updateAuthUI(); showToast("已退出登录");
+}
+function toggleUserMenu() {
+  userMenuOpen = !userMenuOpen;
+  document.getElementById("userDropdown").classList.toggle("open", userMenuOpen);
+}
+document.addEventListener("click", e => {
+  if (!e.target.closest(".user-menu-wrap")) {
+    userMenuOpen = false;
+    const d = document.getElementById("userDropdown");
+    if (d) d.classList.remove("open");
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// 收藏 / 历史
+// ══════════════════════════════════════════════════════
+async function loadFavIds() {
+  if (!authUser) return;
+  try {
+    const resp = await api("/api/favorites", { headers: { Authorization: "Bearer " + authToken } });
+    if (!resp.ok) return;
+    favIds = new Set((await resp.json()).map(f => f.url));
+    refreshFavBtns();
+  } catch (e) { if (e.code === 501) showToast(e.message); }
+}
+function refreshFavBtns() {
+  document.querySelectorAll(".fav-btn,.hb-fav").forEach(btn => {
+    const url = btn.dataset.url;
+    btn.classList.toggle("active", favIds.has(url));
+    btn.title = favIds.has(url) ? "取消收藏" : "收藏";
+  });
+}
+async function toggleFav(btn) {
+  if (!authUser) { openAuthModal(); return; }
+  const { url, title, platform } = btn.dataset;
+  try {
+    if (favIds.has(url)) {
+      const resp = await api("/api/favorites", { headers: { Authorization: "Bearer " + authToken } });
+      const fav = (await resp.json()).find(f => f.url === url);
+      if (fav) await api("/api/favorites/" + fav.id, { method: "DELETE", headers: { Authorization: "Bearer " + authToken } });
+      favIds.delete(url); showToast("已取消收藏");
+    } else {
+      await api("/api/favorites", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + authToken, "Content-Type": "application/json" },
+        body: JSON.stringify({ title, url, platform }),
+      });
+      favIds.add(url); showToast("⭐ 已收藏");
+    }
+  } catch (e) { showToast(e.code === 501 ? e.message : "操作失败"); return; }
+  refreshFavBtns();
+}
+async function trackHistory(title, url, platform) {
+  if (!authUser) return;
+  try {
+    await api("/api/history", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + authToken, "Content-Type": "application/json" },
+      body: JSON.stringify({ title, url, platform }),
+    });
+  } catch {}
+}
+
+// 抽屉
+function openDrawer(mode) {
+  drawerMode = mode; userMenuOpen = false;
+  document.getElementById("userDropdown").classList.remove("open");
+  document.getElementById("drawerOverlay").classList.add("open");
+  document.getElementById("drawer").classList.add("open");
+  document.getElementById("drawerTabBar").style.display = "flex";
+  loadDrawerContent();
+}
+function closeDrawer() {
+  document.getElementById("drawerOverlay").classList.remove("open");
+  document.getElementById("drawer").classList.remove("open");
+}
+function switchDrawerTab(mode) {
+  drawerMode = mode;
+  document.querySelectorAll(".drawer-tab").forEach((el, i) => {
+    el.classList.toggle("active", (i === 0 && mode === "fav") || (i === 1 && mode === "history"));
+  });
+  loadDrawerContent();
+}
+async function loadDrawerContent() {
+  const body = document.getElementById("drawerBody");
+  const footer = document.getElementById("drawerFooter");
+  document.getElementById("drawerTitle").textContent = drawerMode === "fav" ? "⭐ 我的收藏" : "🕒 浏览记录";
+  body.innerHTML = `<div class="drawer-empty">加载中…</div>`; footer.innerHTML = "";
+  if (!authUser) { body.innerHTML = `<div class="drawer-empty">请先登录</div>`; return; }
+  try {
+    const endpoint = drawerMode === "fav" ? "/api/favorites" : "/api/history";
+    const resp = await api(endpoint, { headers: { Authorization: "Bearer " + authToken } });
+    if (!resp.ok) { body.innerHTML = `<div class="drawer-empty">加载失败</div>`; return; }
+    const data = await resp.json();
+    if (!data.length) { body.innerHTML = `<div class="drawer-empty">${drawerMode === "fav" ? "暂无收藏" : "暂无浏览记录"}</div>`; return; }
+    body.innerHTML = data.map(item => {
+      const meta = drawerMode === "fav" ? item.saved_at : item.viewed_at;
+      return `<div class="drawer-item">
+        <a href="${esc(item.url)}" target="_blank" rel="noopener"
+           onclick="trackHistory(${JSON.stringify(item.title).replace(/"/g,'&quot;')},${JSON.stringify(item.url).replace(/"/g,'&quot;')},'${esc(item.platform || "")}')">${esc(item.title)}</a>
+        <div class="di-meta">
+          <span>${esc(item.platform || "")}</span><span>${esc((meta || "").slice(0, 16))}</span>
+          ${drawerMode === "fav" ? `<button class="di-del" onclick="delFav(${item.id}, this)">🗑</button>` : ""}
+        </div>
+      </div>`;
+    }).join("");
+    if (drawerMode === "history") footer.innerHTML = `<button class="icon-btn danger" style="width:100%" onclick="clearHistory()">🗑 清空历史</button>`;
+  } catch (e) {
+    body.innerHTML = `<div class="drawer-empty">${e.code === 501 ? esc(e.message) : "加载出错"}</div>`;
+  }
+}
+async function delFav(id, btn) {
+  try {
+    await api("/api/favorites/" + id, { method: "DELETE", headers: { Authorization: "Bearer " + authToken } });
+    btn.closest(".drawer-item").remove();
+    await loadFavIds(); showToast("已删除");
+  } catch { showToast("删除失败"); }
+}
+async function clearHistory() {
+  if (!confirm("确认清空全部浏览记录？")) return;
+  try {
+    await api("/api/history", { method: "DELETE", headers: { Authorization: "Bearer " + authToken } });
+    loadDrawerContent(); showToast("已清空");
+  } catch { showToast("操作失败"); }
+}
+
+// ══════════════════════════════════════════════════════
+// 视图切换
+// ══════════════════════════════════════════════════════
+function gotoHotboard() { switchCat(HOT_CAT); }
+
+document.getElementById("catNav").addEventListener("click", e => {
+  const btn = e.target.closest(".cat-btn");
+  if (!btn) return;
+  switchCat(btn.dataset.cat);
+});
+function switchCat(cat) {
+  if (cat === currentCat && currentPlat === null) return;
+  document.querySelectorAll(".cat-btn").forEach(b => b.classList.remove("active"));
+  document.querySelector(`.cat-btn[data-cat="${cat === HOT_CAT ? "__hot" : cat}"]`)?.classList.add("active");
+  currentCat = cat; currentPlat = null;
+  renderPlatTabs();
+  refreshCurrent();
+}
+
+function renderPlatTabs() {
+  const el = document.getElementById("platTabs");
+  if (currentCat === HOT_CAT) {
+    el.innerHTML = `<button class="plat-tab active" style="background:var(--accent)">⚡ 融合榜</button>`;
+    return;
+  }
+  const failedIds = new Set(failedPlatforms.map(fp => fp.platform));
+  el.innerHTML = `<button class="plat-tab active" data-plat="all" onclick="selectPlat(null,this)">全部</button>` +
+    (CATEGORIES[currentCat] || [])
+      .filter(pid => !failedIds.has(pid))
+      .map(pid => {
+        const m = PLATFORM_META[pid] || {};
+        return `<button class="plat-tab" data-plat="${pid}" style="--pc:${m.color || "#4f6ef7"}"
+          onclick="selectPlat('${pid}',this)">${m.emoji || ""} ${m.label || pid}</button>`;
+      }).join("");
+  applyPlatTabColors();
+}
+function applyPlatTabColors() {
+  document.querySelectorAll(".plat-tab.active").forEach(btn => {
+    const pid = btn.dataset.plat;
+    if (pid === "all" || !pid) {
+      btn.style.background = "var(--accent)"; btn.style.color = "#fff";
+    } else {
+      const m = PLATFORM_META[pid] || {};
+      btn.style.background = m.color || "var(--accent)"; btn.style.color = "#fff";
+    }
+  });
+}
+function selectPlat(pid, btn) {
+  document.querySelectorAll(".plat-tab").forEach(b => {
+    b.classList.remove("active"); b.style.background = ""; b.style.color = "";
+  });
+  btn.classList.add("active");
+  applyPlatTabColors();
+  currentPlat = pid;
+  renderView();
+}
+
+// ══════════════════════════════════════════════════════
+// 渲染
+// ══════════════════════════════════════════════════════
+function skeletonCard() {
+  return `<div class="card-head"><div class="plat-tile skeleton" style="background:var(--surface-2)"></div>
+    <div class="skel-line" style="width:90px;margin:0"></div></div>` +
+    `<div class="skel-line w82"></div><div class="skel-line w64"></div><div class="skel-line w73"></div>
+     <div class="skel-line w55"></div><div class="skel-line w82"></div><div class="skel-line w64"></div>`;
+}
+
+function badgeFor(data) {
+  if (!data) return "";
+  const isFailed = data.status === "failed" || !data.items || !data.items.length;
+  if (isFailed) return `<span class="badge dead">✕ 不可用</span>`;
+  if (data.update_note && data.update_note.includes("数据延迟")) return `<span class="badge delay">⏳ 延迟</span>`;
+  if (data.is_realtime) return `<span class="badge rt">⚡ 实时</span>`;
+  return `<span class="badge nrt" title="${esc(data.update_note || "")}">🕒 非实时</span>`;
+}
+
+function renderNewsItem(item, platformId) {
+  const m = PLATFORM_META[platformId] || {};
+  const isFav = favIds.has(item.url);
+  return `<li class="news-item">
+    <span class="${rankCls(item.rank)}">${item.rank}</span>
+    <a class="news-link" href="${esc(item.url)}" target="_blank" rel="noopener"
+       title="${esc(item.title)}"
+       onclick='trackHistory(${JSON.stringify(String(item.title)).replace(/'/g, "&#39;")},${JSON.stringify(String(item.url)).replace(/'/g, "&#39;")},"${platformId}")'
+    >${esc(item.title)}</a>
+    <div class="item-actions">
+      ${item.hot ? `<span class="hot-tag${item.rank <= 3 ? " hot1" : ""}">${esc(item.hot)}</span>` : ""}
+      <button class="fav-btn${isFav ? " active" : ""}" data-url="${esc(item.url)}"
+        data-title="${esc(item.title).replace(/"/g, "&quot;")}" data-platform="${platformId}"
+        onclick="toggleFav(this)">${isFav ? "⭐" : "☆"}</button>
+    </div>
+  </li>`;
+}
+
+function renderCard(platformId, data, preview = true) {
+  const m = PLATFORM_META[platformId] || { label: platformId, color: "#4f6ef7", home: "#", emoji:"📌" };
+  const maxItems = preview ? 10 : 25;
+  const isFailed = data && (data.status === "failed" || !data.items || !data.items.length);
+
+  let body = "";
+  if (!data) body = skeletonCard();
+  else if (isFailed) body = `<div class="empty-row">
+      <span class="emo">🛰️</span>
+      <span>${esc(data.update_note || "抓取失败")}</span>
+      <a href="${m.home}" target="_blank" rel="noopener" class="card-link">↗ 去官网看</a>
+    </div>`;
+  else body = `<ul class="news-list">${data.items.slice(0, maxItems).map(it => renderNewsItem(it, platformId)).join("")}</ul>`;
+
+  return `<div class="card-head" style="--pc:${m.color}">
+      <div class="plat-tile">${m.emoji || "📌"}</div>
+      <span class="card-name">${m.label || platformId}</span>
+      ${badgeFor(data)}
+      <a class="card-link" href="${m.home}" target="_blank" rel="noopener">官网 ↗</a>
+    </div>${body}`;
+}
+
+// 标题规范化（融合去重用）
+function normTitle(t) {
+  return String(t).replace(/[^\u4e00-\u9fa5a-z0-9]/gi, "").toLowerCase();
+}
+
+// 全网热榜融合：加权得分 + 跨平台去重合并
+function buildHotboard() {
+  const entries = new Map(); // normKey -> {title,url,hot,score,srcs:[{pid,rank}]}
+  for (const { pid, w } of MERGE_SOURCES) {
+    const data = newsCache[pid];
+    if (!data || !data.items) continue;
+    data.items.forEach((it, idx) => {
+      const rank = it.rank || idx + 1;
+      if (rank > 20) return;
+      const key = normTitle(it.title);
+      if (!key || key.length < 4) return;
+      const score = w * (21 - rank);
+      const exist = entries.get(key);
+      if (exist) {
+        exist.score += score * 0.55;   // 多平台同时上榜 = 更热
+        exist.srcs.push({ pid, rank });
+        if (rank < exist.bestRank) {
+          exist.bestRank = rank; exist.title = it.title; exist.url = it.url; exist.hot = it.hot || exist.hot;
+        }
+      } else {
+        entries.set(key, { title: it.title, url: it.url, hot: it.hot || "", score, bestRank: rank, srcs: [{ pid, rank }] });
+      }
+    });
+  }
+  return [...entries.values()].sort((a, b) => b.score - a.score).slice(0, 30);
+}
+
+function renderHotboard() {
+  const card = document.getElementById("hotboardCard");
+  const merged = buildHotboard();
+  const okSrcs = MERGE_SOURCES.map(s => s.pid).filter(pid => {
+    const d = newsCache[pid]; return d && d.items && d.items.length;
+  });
+  document.getElementById("hotboardSub").textContent =
+    `融合 ${okSrcs.length} 个实时热搜榜单 · 每 5 分钟自动更新`;
+  if (!merged.length) {
+    card.innerHTML = Array.from({ length: 8 }).map(() =>
+      `<div class="skel-line" style="margin:.8rem 1rem;width:70%"></div>`).join("");
+    return;
+  }
+  card.innerHTML = merged.map((it, i) => {
+    const isFav = favIds.has(it.url);
+    const chips = it.srcs.slice(0, 3).map((s, si) => {
+      const m = PLATFORM_META[s.pid] || {};
+      return `<span class="src-chip${si === 0 ? " lead" : ""}" style="background:${m.color || "#666"}">${m.label || s.pid}</span>`;
+    }).join("");
+    return `<div class="hb-item">
+      <span class="${hbRankCls(i + 1)}">${i + 1}</span>
+      <div class="hb-main">
+        <a class="hb-title" href="${esc(it.url)}" target="_blank" rel="noopener" title="${esc(it.title)}"
+           onclick='trackHistory(${JSON.stringify(String(it.title)).replace(/'/g, "&#39;")},${JSON.stringify(String(it.url)).replace(/'/g, "&#39;")},"hotboard")'>${esc(it.title)}</a>
+        <div class="hb-meta">${chips}${it.srcs.length > 3 ? `<span class="hb-hot">+${it.srcs.length - 3} 平台</span>` : ""}</div>
+      </div>
+      ${it.hot ? `<span class="hb-hot">${esc(it.hot)}</span>` : ""}
+      <button class="hb-fav${isFav ? " active" : ""}" data-url="${esc(it.url)}"
+        data-title="${esc(it.title).replace(/"/g, "&quot;")}" data-platform="hotboard"
+        onclick="toggleFav(this)">${isFav ? "⭐" : "☆"}</button>
+    </div>`;
+  }).join("");
+}
+
+function renderView() {
+  const grid = document.getElementById("newsGrid");
+  const full = document.getElementById("fullView");
+  const hot = document.getElementById("hotboardView");
+  const failedIds = new Set(failedPlatforms.map(fp => fp.platform));
+
+  if (currentCat === HOT_CAT) {
+    grid.style.display = "none"; full.classList.remove("active");
+    hot.style.display = "block";
+    renderHotboard();
+  } else if (!currentPlat) {
+    hot.style.display = "none"; full.classList.remove("active");
+    grid.style.display = "grid";
+    grid.innerHTML = (CATEGORIES[currentCat] || [])
+      .filter(pid => !failedIds.has(pid))
+      .map(pid => `<div class="card" id="card-${pid}" style="--pc:${(PLATFORM_META[pid] || {}).color || "#4f6ef7"}">${renderCard(pid, newsCache[pid], true)}</div>`)
+      .join("");
+  } else {
+    hot.style.display = "none"; grid.style.display = "none";
+    full.classList.add("active");
+    document.getElementById("fullCard").style.setProperty("--pc", (PLATFORM_META[currentPlat] || {}).color || "#4f6ef7");
+    document.getElementById("fullCard").innerHTML = renderCard(currentPlat, newsCache[currentPlat], false);
+  }
+  refreshFavBtns();
+  renderFailedSection();
+}
+
+// ════ 失败折叠区 ══════════════════════════════════════
+function toggleFailed() {
+  const body = document.getElementById("failedBody");
+  document.getElementById("failedArrow").classList.toggle("open", body.classList.toggle("open"));
+}
+function renderFailedSection() {
+  const section = document.getElementById("failedSection");
+  if (!failedPlatforms.length) { section.style.display = "none"; return; }
+  document.getElementById("failedBadge").textContent = failedPlatforms.length;
+  document.getElementById("failedLabel").textContent = `以下 ${failedPlatforms.length} 个平台暂时无法抓取（点击展开）`;
+  section.style.display = "block";
+  document.getElementById("failedGrid").innerHTML = failedPlatforms.map(fp => {
+    const m = PLATFORM_META[fp.platform] || {};
+    return `<div class="failed-card">
+      <div class="failed-card-name"><span class="failed-dot"></span><span>${m.emoji || ""} ${esc(fp.name)}</span></div>
+      <div class="failed-card-note">${esc(fp.note || "抓取失败")}</div>
+      <div style="display:flex;gap:.7rem;align-items:center;padding-left:.7rem">
+        <button onclick="retryPlatform('${fp.platform}')" class="retry-btn">🔄 重试</button>
+        <a href="${m.home || "#"}" target="_blank" rel="noopener" style="font-size:.7rem;color:var(--accent);text-decoration:none">↗ 官网</a>
+      </div>
+    </div>`;
+  }).join("");
+}
+async function retryPlatform(pid) {
+  const btn = event && event.target;
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ 重试中…"; }
+  try {
+    const resp = await fetch(`/api/news/batch?platforms=${pid}&refresh=1`);
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    const { _meta, ...clean } = data;
+    Object.assign(newsCache, clean);
+    if (clean[pid] && clean[pid].items && clean[pid].items.length) {
+      failedPlatforms = failedPlatforms.filter(fp => fp.platform !== pid);
+    }
+    renderView(); updateTimeDisplay();
+  } catch (e) {
+    console.error("重试失败:", e);
+    if (btn) { btn.disabled = false; btn.textContent = "🔄 重试"; }
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 数据加载（localStorage 秒开 + 后台静默刷新）
+// ══════════════════════════════════════════════════════
+function saveLocal() {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify({ newsCache, catMeta, ts: Date.now() }));
+  } catch {}
+}
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return;
+    const { newsCache: nc, catMeta: cm } = JSON.parse(raw);
+    if (nc && typeof nc === "object") newsCache = nc;
+    if (cm && typeof cm === "object") catMeta = cm;
+  } catch {}
+}
+
+function pidsForView(cat, plat) {
+  if (cat === HOT_CAT) return MERGE_PIDS;
+  if (plat) return [plat];
+  return CATEGORIES[cat] || [];
+}
+
+async function refreshCurrent(forceRefresh = false) {
+  if (loading && !forceRefresh) return;
+  const pids = pidsForView(currentCat, currentPlat);
+  const hasVisible = pids.some(pid => {
+    const d = newsCache[pid]; return d && d.items && d.items.length;
+  });
+
+  if (!forceRefresh && hasVisible) {
+    renderView(); updateTimeDisplay();
+    silentRefresh(pids);
+    return;
+  }
+
+  loading = true;
+  const btn = document.getElementById("refreshBtn");
+  const spin = document.getElementById("spinIcon");
+  if (forceRefresh) { btn.disabled = true; spin.classList.add("spinning"); }
+  document.getElementById("updateTime").textContent = hasVisible ? "正在刷新…" : "正在加载…";
+  if (!hasVisible) renderView();
+
+  await doFetch(pids, forceRefresh);
+
+  loading = false;
+  if (forceRefresh) { btn.disabled = false; spin.classList.remove("spinning"); }
+  updateTimeDisplay(); renderView(); saveLocal();
+}
+
+async function silentRefresh(pids) {
+  loading = true;
+  await doFetch(pids, false);
+  loading = false;
+  const key = currentCat === HOT_CAT ? HOT_CAT : currentCat;
+  catMeta[key] = { fetchTime: Date.now(), failed: failedPlatforms.slice() };
+  if (key === currentCat) { updateTimeDisplay(); renderView(); }
+  saveLocal();
+}
+
+async function doFetch(pids, forceRefresh) {
+  try {
+    const refreshParam = forceRefresh ? "&refresh=1" : "";
+    const resp = await fetch(`/api/news/batch?platforms=${pids.join(",")}${refreshParam}`);
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    failedPlatforms = (data._meta && data._meta.failed) || [];
+    const { _meta, ...clean } = data;
+    Object.assign(newsCache, clean);
+    catMeta[currentCat === HOT_CAT ? HOT_CAT : currentCat] = {
+      fetchTime: Date.now(), failed: failedPlatforms.slice(),
+    };
+  } catch (e) { console.error("加载失败:", e); }
+}
+
+function updateTimeDisplay() {
+  const el = document.getElementById("updateTime");
+  const key = currentCat === HOT_CAT ? HOT_CAT : currentCat;
+  const meta = catMeta[key];
+  if (!meta) { el.textContent = "正在加载…"; return; }
+  const sec = Math.floor((Date.now() - meta.fetchTime) / 1000);
+  const timeStr = sec < 60 ? `${sec} 秒前` : `${Math.floor(sec / 60)} 分钟前`;
+  const nOk = pidsForView(currentCat, currentPlat).filter(pid => {
+    const d = newsCache[pid]; return d && d.items && d.items.length;
+  }).length;
+  el.textContent = `${nOk}/${pidsForView(currentCat, currentPlat).length} 个平台 · ${timeStr}`;
+}
+
+// ══════════════════════════════════════════════════════
+// 分享
+// ══════════════════════════════════════════════════════
+function openShare() {
+  document.getElementById("shareOverlay").classList.add("open");
+  document.getElementById("sharePopup").classList.add("open");
+}
+function closeShare() {
+  document.getElementById("shareOverlay").classList.remove("open");
+  document.getElementById("sharePopup").classList.remove("open");
+}
+function shareNative() {
+  if (navigator.share) {
+    navigator.share({ title: document.title, text: "🔥 热点聚合 · 全网热榜一站看", url: location.href })
+      .then(() => closeShare()).catch(() => {});
+  } else shareCopy();
+}
+function shareQQ() {
+  window.open(`https://connect.qq.com/widget/shareqq/index.html?url=${encodeURIComponent(location.href)}&title=${encodeURIComponent(document.title)}`, "_blank", "width=640,height=480");
+  closeShare();
+}
+function shareWeibo() {
+  window.open(`https://service.weibo.com/share/share.php?url=${encodeURIComponent(location.href)}&title=${encodeURIComponent(document.title + " 🔥")}`, "_blank", "width=620,height=450");
+  closeShare();
+}
+function shareCopy() {
+  const done = () => { showToast("✅ 链接已复制"); closeShare(); };
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(location.href).then(done).catch(() => fallbackCopy());
+  } else fallbackCopy();
+  function fallbackCopy() {
+    const ta = document.createElement("textarea");
+    ta.value = location.href; ta.style.cssText = "position:fixed;opacity:0";
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    try { document.execCommand("copy"); done(); } catch { showToast("复制失败，请手动复制地址栏"); }
+    document.body.removeChild(ta);
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 搜索（纯客户端，跨已加载平台）
+// ══════════════════════════════════════════════════════
+let _searchTimer = null;
+function onSearchInput(v) {
+  document.getElementById("searchClear").classList.toggle("show", !!v);
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => runSearch(v), 240);
+}
+function clearSearch() {
+  const box = document.getElementById("globalSearch");
+  box.value = "";
+  document.getElementById("searchClear").classList.remove("show");
+  document.getElementById("searchResults").classList.remove("show");
+  box.focus();
+}
+function escapeReg(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+function runSearch(query) {
+  const panel = document.getElementById("searchResults");
+  const body = document.getElementById("searchBody");
+  query = (query || "").trim();
+  if (!query) { panel.classList.remove("show"); return; }
+  const re = new RegExp(escapeReg(query), "i");
+  const matches = [];
+  for (const pid in newsCache) {
+    const data = newsCache[pid];
+    if (!data || !data.items) continue;
+    const m = PLATFORM_META[pid] || { label: pid, color: "#666" };
+    for (const it of data.items) {
+      if (re.test(it.title || "")) matches.push({ ...it, pid, platLabel: m.label, platColor: m.color });
+    }
+  }
+  matches.sort((a, b) => (parseInt(String(b.hot).replace(/[^\d]/g, "")) || 0) - (parseInt(String(a.hot).replace(/[^\d]/g, "")) || 0) || (a.rank || 0) - (b.rank || 0));
+  const top = matches.slice(0, 50);
+  panel.classList.add("show");
+  document.getElementById("searchHeader").innerHTML =
+    `🔎 找到 <b style="color:var(--gold)">${matches.length}</b> 条相关热点${matches.length > 50 ? "（显示前 50 条）" : ""}`;
+  if (!top.length) {
+    body.innerHTML = `<div class="search-empty">😢 没有包含「${esc(query)}」的热点，换个关键词试试</div>`;
+    return;
+  }
+  const hlRe = new RegExp(`(${escapeReg(query)})`, "gi");
+  body.innerHTML = top.map(it => `<div class="search-item">
+      <span class="search-item-rank">${it.rank || "·"}</span>
+      <a class="search-item-title" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title).replace(hlRe, '<mark class="hl">$1</mark>')}</a>
+      <span class="search-item-plat" style="background:${it.platColor}">${esc(it.platLabel)}</span>
+    </div>`).join("");
+}
+
+// ══════════════════════════════════════════════════════
+// 预热其余分类 + 自动刷新 + 回顶
+// ══════════════════════════════════════════════════════
+async function preloadAllCategories() {
+  for (const cat of Object.keys(CATEGORIES)) {
+    const meta = catMeta[cat];
+    if (meta && Date.now() - meta.fetchTime < CACHE_TTL) continue;
+    try {
+      await doFetch(CATEGORIES[cat], false);
+      if (cat === currentCat) { renderView(); updateTimeDisplay(); }
+    } catch {}
+  }
+  saveLocal();
+}
+
+setInterval(() => {
+  // 静默刷新：当前视图 + 已缓存分类（避免 stale 增长）
+  silentRefresh(pidsForView(currentCat, currentPlat));
+  Object.keys(catMeta).forEach(cat => {
+    if (cat !== currentCat && Date.now() - catMeta[cat].fetchTime > CACHE_TTL) {
+      const pids = cat === HOT_CAT ? MERGE_PIDS : (CATEGORIES[cat] || []);
+      doFetch(pids, false).catch(() => {});
+    }
+  });
+}, 5 * 60 * 1000);
+
+// Keep-alive（每 4.5 分钟 ping 一次）：页面开着时保持后端不休眠
+// （Render 免费版 15 分钟无流量会休眠；云端 Worker Cron 也会每 3 分钟服务端保活）
+setInterval(() => { fetch("/api/ping").catch(() => {}); }, 4.5 * 60 * 1000);
+
+window.addEventListener("scroll", () => {
+  document.getElementById("backTop").classList.toggle("show", window.scrollY > 500);
+}, { passive: true });
+
+// ══════════════════════════════════════════════════════
+// 初始化
+// ══════════════════════════════════════════════════════
+(function init() {
+  applyTheme(localStorage.getItem("hn_theme") ||
+    (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+  updateAuthUI();
+  loadLocal();               // 秒开：先渲染本地缓存
+  renderPlatTabs();
+  refreshCurrent();          // 再静默刷新数据
+  setTimeout(preloadAllCategories, 3500);
+
+  const sbox = document.getElementById("globalSearch");
+  sbox.addEventListener("input", e => onSearchInput(e.target.value));
+  sbox.addEventListener("keydown", e => {
+    if (e.key === "Escape") { clearSearch(); e.preventDefault(); }
+    if (e.key === "Enter") {
+      const first = document.querySelector(".search-item-title");
+      if (first) window.open(first.href, "_blank", "noopener");
+    }
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
+      sbox.focus(); e.preventDefault();
+    }
+  });
+})();
+</script>
+</body>
+</html>

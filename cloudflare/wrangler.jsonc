@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hotnews",
+  "compatibility_date": "2026-08-01",
+  "main": "src/index.js",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  // KV 缓存（必须）：wrangler kv namespace create CACHE 后把 id 填到下面
+  "kv_namespaces": [
+    { "binding": "CACHE", "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID" }
+  ],
+  // Cron 预热：每 3 分钟轮换刷新一批平台，用户请求永远命中缓存
+  "triggers": {
+    "crons": ["*/3 * * * *"]
+  },
+  "vars": {
+    // JWT/口令散列密钥；与 Flask 版一致则两边账号互通。部署后建议改成自己的随机串
+    "SECRET_KEY": "hotnews-secret-2024-xK9mP"
+  }
+  // 账号/收藏功能（可选）：取消下面注释并执行
+  //   wrangler d1 create hotnews
+  //   wrangler d1 execute hotnews --remote --file schema.sql
+  // 然后把 database_id 填进来
+  //,
+  // "d1_databases": [
+  //   { "binding": "DB", "database_name": "hotnews", "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID" }
+  // ]
+}
