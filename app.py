@@ -1781,6 +1781,11 @@ def robots():
 def sitemap():
     return send_file("static/sitemap.xml", mimetype="application/xml; charset=utf-8")
 
+# Google Search Console 域名验证文件（保持在线，否则验证状态会失效）
+@app.route("/google4fea8b12413f458b.html")
+def google_verify():
+    return send_file("static/google4fea8b12413f458b.html", mimetype="text/html; charset=utf-8")
+
 @app.route("/api/news/<platform>")
 def get_news(platform):
     fn = FETCHERS.get(platform)
