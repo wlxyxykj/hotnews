@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://hotnews-top.onrender.com/sitemap.xml

@@ -90,6 +90,36 @@ async function refreshInto(blob, pids, concurrency = 6) {
   });
 }
 
+// ── SSR：把缓存热搜注入 HTML 给爬虫（与 Flask 版 _build_ssr_block 对应）──
+const SSR_PLATFORM_ORDER = ["weibo", "baidu", "douyin", "toutiao", "zhihu", "bilibili", "tieba", "tencent"];
+const escHtml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+function buildSsrBlock(blob) {
+  const rows = [];
+  for (const pid of SSR_PLATFORM_ORDER) {
+    const entry = blob.platforms[pid];
+    const data = entry && entry.data;
+    if (!data || data.status !== "success" || !Array.isArray(data.items)) continue;
+    for (const it of data.items.slice(0, 3)) {
+      const t = String(it.title || "").trim();
+      const u = it.url || "";
+      if (t && u) rows.push([pid, t, u]);
+    }
+    if (rows.length >= 24) break;
+  }
+  if (!rows.length) return "";
+  const lis = rows.map(([pid, t, u]) =>
+    `<li><a href="${escHtml(u)}" rel="nofollow">${escHtml(t)} — ${PLATFORM_NAMES[pid] || pid}</a></li>`).join("");
+  const jsonld = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    "name": "今日全网热搜榜",
+    "itemListElement": rows.slice(0, 20).map(([pid, t, u], i) => ({ "@type": "ListItem", position: i + 1, name: t, url: u })),
+  });
+  return `<noscript><div style="padding:1rem"><h2>今日热搜</h2><ol>${lis}</ol></div></noscript>\n` +
+         `<script type="application/ld+json">${jsonld.replace(/</g, "<\\/")}</script>`;
+}
+
 // ── Cron：每轮刷实时核心 + 一个轮换组 ───────────────────
 async function cronRefresh(env) {
   const blob = await loadBlob(env, { skipMem: true });
@@ -184,7 +214,21 @@ export default {
 
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS" } });
     if (!path.startsWith("/api/")) {
-      return env.ASSETS ? env.ASSETS.fetch(request) : json({ error: "no assets" }, 500);
+      if (!env.ASSETS) return json({ error: "no assets" }, 500);
+      const res = await env.ASSETS.fetch(request);
+      // 首页：把缓存里的热搜标题注入 HTML（noscript + JSON-LD），给搜索引擎爬虫看真实内容
+      if (path === "/" || path === "/index.html") {
+        let text = await res.text();
+        try {
+          const ssr = buildSsrBlock(await loadBlob(env));
+          if (ssr) text = text.replace("<!-- SSR_HOOK -->", ssr);
+        } catch { /* 注入失败就返回原页面 */ }
+        return new Response(text, {
+          status: res.status,
+          headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=120" },
+        });
+      }
+      return res;
     }
 
     try {

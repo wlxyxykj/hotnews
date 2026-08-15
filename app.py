@@ -11,7 +11,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_file
 from flask_cors import CORS
 
 # 北京时间时区
@@ -1722,9 +1722,64 @@ def start_background_refresh():
 
 # ─── 路由 ─────────────────────────────────────────────────────
 
+# SSR 注入用的平台权重顺序（与前端 MERGE_SOURCES 对应）
+SSR_PLATFORM_ORDER = ["weibo", "baidu", "douyin", "toutiao", "zhihu", "bilibili", "tieba", "tencent"]
+
+def _build_ssr_block():
+    """
+    把缓存里的实时热搜标题直接渲染进 HTML（noscript + JSON-LD），
+    让搜索引擎爬虫能看到真实内容。只读缓存、绝不现场抓取，不拖慢首页。
+    """
+    import html as _h
+    rows = []
+    with _lock:
+        for pid in SSR_PLATFORM_ORDER:
+            item = _cache.get(pid)
+            data = item and item.get("data") or {}
+            if data.get("status") != "success" or not data.get("items"):
+                continue
+            for it in data["items"][:3]:
+                t = (it.get("title") or "").strip()
+                u = it.get("url") or ""
+                if t and u:
+                    rows.append((pid, t, u))
+            if len(rows) >= 24:
+                break
+    if not rows:
+        return ""
+    lis = "".join(
+        f'<li><a href="{_h.escape(u, quote=True)}" rel="nofollow">{_h.escape(t)} — {PLATFORM_NAMES.get(pid, pid)}</a></li>'
+        for pid, t, u in rows
+    )
+    jsonld = json.dumps({
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "name": "今日全网热搜榜",
+        "itemListElement": [
+            {"@type": "ListItem", "position": i + 1, "name": t, "url": u}
+            for i, (pid, t, u) in enumerate(rows[:20])
+        ],
+    }, ensure_ascii=False)
+    return (
+        '<noscript><div style="padding:1rem"><h2>今日热搜</h2><ol>' + lis + "</ol></div></noscript>\n"
+        '<script type="application/ld+json">' + jsonld.replace("</", "<\\/") + "</script>"
+    )
+
 @app.route("/")
 def index():
-    return render_template("index.html")
+    html = render_template("index.html")
+    ssr = _build_ssr_block()
+    if ssr:
+        html = html.replace("<!-- SSR_HOOK -->", ssr)
+    return html
+
+@app.route("/robots.txt")
+def robots():
+    return send_file("static/robots.txt", mimetype="text/plain; charset=utf-8")
+
+@app.route("/sitemap.xml")
+def sitemap():
+    return send_file("static/sitemap.xml", mimetype="application/xml; charset=utf-8")
 
 @app.route("/api/news/<platform>")
 def get_news(platform):

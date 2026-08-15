@@ -56,9 +56,12 @@ if (cfg.includes(PLACEHOLDER)) {
   log("\n② KV 已配置，跳过创建");
 }
 
-// 2) 同步最新前端（跨平台写法，不依赖 shell 的 cp）
+// 2) 同步最新前端 + 静态资源（默认背景图 / robots / sitemap）
 fs.copyFileSync(join(root, "..", "templates", "index.html"), join(root, "public", "index.html"));
-log("\n③ 已同步最新前端页面");
+fs.cpSync(join(root, "..", "static"), join(root, "public", "static"), { recursive: true });
+fs.copyFileSync(join(root, "..", "static", "robots.txt"), join(root, "public", "robots.txt"));
+fs.copyFileSync(join(root, "..", "static", "sitemap.xml"), join(root, "public", "sitemap.xml"));
+log("\n③ 已同步最新前端页面和静态资源");
 
 // 3) 部署
 log("\n④ 部署到 Cloudflare 边缘网络…\n");

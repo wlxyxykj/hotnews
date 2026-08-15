@@ -3,8 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>热点聚合 · 全网热榜一站看</title>
-  <meta name="description" content="实时聚合 40+ 平台热搜榜单：微博、百度、抖音、知乎、B站、贴吧、掘金、GitHub……一亮一暗双主题，秒开。" />
+  <title>新闻汇总——汇集40+热门平台热搜榜，一眼知天下事</title>
+  <meta name="description" content="新闻汇总：汇集微博、百度、抖音、知乎、B站、贴吧、头条等40+热门平台的实时热搜榜，一张全网热榜看尽今天大家都在关心什么，一眼知天下事。" />
+  <meta name="keywords" content="新闻汇总,热搜,热榜,全网热搜,今日热点,微博热搜,百度热搜,抖音热榜,知乎热榜" />
+  <meta property="og:title" content="新闻汇总——汇集40+热门平台热搜榜" />
+  <meta property="og:description" content="一张全网热榜，看尽微博/百度/抖音/知乎/B站/贴吧等40+平台的实时热搜。" />
+  <meta property="og:type" content="website" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ff8a3d'/%3E%3Cstop offset='1' stop-color='%23ff4d4f'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' rx='24' fill='url(%23g)'/%3E%3Ctext x='50' y='68' font-size='52' text-anchor='middle'%3E🔥%3C/text%3E%3C/svg%3E" />
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -446,7 +450,7 @@
   <div class="header-inner">
     <div class="logo" onclick="gotoHotboard()" title="回到全网热榜">
       <div class="logo-tile">🔥</div>
-      <div class="logo-text">热点<b>聚合</b></div>
+      <div class="logo-text">新闻<b>汇总</b></div>
     </div>
 
     <nav class="cat-nav" id="catNav">
@@ -533,6 +537,7 @@
     <span>👁️ 访问 <span id="busuanzi_value_site_pv"></span> 次</span>
     <span>👤 访客 <span id="busuanzi_value_site_uv"></span> 人</span>
     <span id="sourceCount">40+ 平台</span>
+    <span>💬 QQ 3674528093</span>
   </div>
 </main>
 
@@ -547,6 +552,10 @@
       <button class="icon-btn" onclick="document.getElementById('bgFileInput').click()">🖼 选几张图</button>
       <input type="file" id="bgFolderInput" webkitdirectory multiple accept="image/*" style="display:none" />
       <input type="file" id="bgFileInput" multiple accept="image/*" style="display:none" />
+    </div>
+    <div class="bg-panel-row">
+      <button class="icon-btn" onclick="useDefaultBg()">🖼 恢复默认背景</button>
+      <button class="icon-btn" onclick="bgOff()">🚫 关闭背景</button>
     </div>
     <div id="bgStatus" style="font-size:.72rem;color:var(--muted);min-height:1.2em"></div>
     <div class="bg-thumbs" id="bgThumbs"></div>
@@ -615,6 +624,7 @@
 </div>
 
 <div id="toast"></div>
+<!-- SSR_HOOK -->
 
 <script>
 // ══════════════════════════════════════════════════════
@@ -1396,6 +1406,7 @@ window.addEventListener("scroll", () => {
 // ══════════════════════════════════════════════════════
 const BG_MAX_IMPORT = 60;        // 文件夹抽样上限（1366 张全存会撑爆）
 const BG_SETTINGS_KEY = "hn_bg_settings";
+const BG_DEFAULT_URL = "/static/bg/default.jpg";   // 内置默认背景（服务端静态资源）
 
 function bgSettings() {
   try { return JSON.parse(localStorage.getItem(BG_SETTINGS_KEY)) || {}; } catch { return {}; }
@@ -1476,12 +1487,9 @@ async function bgImport(fileList, sample) {
     if (blob) { await bgPut(blob); ok++; }
   }
   status.textContent = `已导入 ${ok} 张` + (sample && ok >= BG_MAX_IMPORT ? `（从更多图片中抽样）` : "");
-  // 若当前没启用背景，自动启用第一张
-  const s = bgSettings();
-  if (!s.on) {
-    const all = await bgAll();
-    if (all.length) { bgSaveSettings({ on: true, id: all[0].id }); }
-  }
+  // 导入即启用第一张
+  const all = await bgAll();
+  if (all.length) { bgSaveSettings({ bg: "custom", id: all[all.length - 1].id }); }
   applyBackground();
   renderBgThumbs();
 }
@@ -1490,17 +1498,30 @@ let _bgUrl = null;
 async function applyBackground() {
   const s = bgSettings();
   const body = document.body;
-  if (!s.on || !s.id) { body.classList.remove("bg-on"); return; }
-  try {
-    const all = await bgAll();
-    const item = all.find(x => x.id === s.id);
-    if (!item) { body.classList.remove("bg-on"); return; }
-    if (_bgUrl) URL.revokeObjectURL(_bgUrl);
-    _bgUrl = URL.createObjectURL(item.blob);
-    body.style.setProperty("--bg-img", `url("${_bgUrl}")`);
-    body.style.setProperty("--bg-opacity", (s.opacity ?? .18));
-    body.classList.add("bg-on");
-  } catch { body.classList.remove("bg-on"); }
+  // 模式：default（内置默认壁纸）| custom（自己选的图）| off（关闭）；老设置自动迁移
+  const mode = s.bg ?? (s.on && s.id ? "custom" : "default");
+  body.classList.remove("bg-on");
+  if (mode === "off") return;
+  body.style.setProperty("--bg-opacity", (s.opacity ?? .18));
+
+  if (mode === "custom" && s.id) {
+    try {
+      const all = await bgAll();
+      const item = all.find(x => x.id === s.id);
+      if (item) {
+        if (_bgUrl) URL.revokeObjectURL(_bgUrl);
+        _bgUrl = URL.createObjectURL(item.blob);
+        setBgImg(_bgUrl);
+        return;
+      }
+    } catch { /* 图没了，落回默认 */ }
+  }
+  if (_bgUrl) { URL.revokeObjectURL(_bgUrl); _bgUrl = null; }
+  setBgImg(BG_DEFAULT_URL);
+}
+function setBgImg(u) {
+  document.body.style.setProperty("--bg-img", `url("${u}")`);
+  document.body.classList.add("bg-on");
 }
 
 const bgThumbCache = new Map();
@@ -1529,9 +1550,18 @@ function openBgPanel() {
 }
 function closeBgPanel() { document.getElementById("bgModal").classList.remove("open"); }
 function pickBg(id) {
-  bgSaveSettings({ on: true, id });
+  bgSaveSettings({ bg: "custom", id });
   applyBackground();
   renderBgThumbs();
+}
+function useDefaultBg() {
+  bgSaveSettings({ bg: "default" });
+  applyBackground();
+  renderBgThumbs();
+}
+function bgOff() {
+  bgSaveSettings({ bg: "off" });
+  applyBackground();
 }
 function setBgOpacity(v) {
   document.getElementById("bgOpacityVal").textContent = v + "%";
@@ -1539,12 +1569,12 @@ function setBgOpacity(v) {
   bgSaveSettings({ opacity: v / 100 });
 }
 async function clearBgImages() {
-  if (!confirm("删除全部已导入的背景图并关闭背景？")) return;
+  if (!confirm("删除全部已导入的背景图？")) return;
   await bgClear();
   bgThumbCache.forEach(u => URL.revokeObjectURL(u));
   bgThumbCache.clear();
-  localStorage.removeItem(BG_SETTINGS_KEY);
-  document.body.classList.remove("bg-on");
+  localStorage.removeItem(BG_SETTINGS_KEY);   // 回到默认背景
+  applyBackground();
   document.getElementById("bgStatus").textContent = "";
   renderBgThumbs();
 }
