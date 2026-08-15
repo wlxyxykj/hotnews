@@ -29,6 +29,7 @@ CORS(app)
 SECRET_KEY = os.environ.get("SECRET_KEY", "hotnews-secret-2024-xK9mP")
 DB_PATH    = os.environ.get("DB_PATH", "hotnews.db")
 CACHE_TTL  = int(os.environ.get("CACHE_TTL", "180"))
+STALE_TTL  = int(os.environ.get("STALE_TTL", "21600"))  # 抓取失败时，旧成功数据最多保留 6 小时兜底
 
 # ─── 数据库 ─────────────────────────────────────────────
 def init_db():
@@ -63,6 +64,7 @@ init_db()
 
 # ─── 缓存 ─────────────────────────────────────────────
 _cache: dict = {}
+_stale_ok: dict = {}   # 各平台最近一次成功数据（跨 CACHE_TTL 保留，供失败兜底）
 _lock = threading.Lock()
 
 def get_cache(key):
@@ -75,6 +77,18 @@ def get_cache(key):
 def set_cache(key, data):
     with _lock:
         _cache[key] = {"ts": time.time(), "data": data}
+        if data.get("status") == "success" and data.get("items"):
+            _stale_ok[key] = {"ts": time.time(), "data": data}
+
+def _stale_fallback(key):
+    """失败兜底：返回 6h 内的上一次成功数据（明确标注延迟），无则 None"""
+    prev = _stale_ok.get(key)
+    if prev and time.time() - prev["ts"] < STALE_TTL:
+        delayed = dict(prev["data"])
+        delayed["is_realtime"] = False
+        delayed["update_note"] = f"上次成功 {prev['data'].get('fetched_at','')} · 数据延迟"
+        return delayed
+    return None
 
 # ─── 工具函数 ──────────────────────────────────────────
 def now_str():
@@ -238,7 +252,7 @@ def fail_result(msg="抓取失败", note=None):
     }
 
 def safe_fetch(key, fn, *args, **kwargs):
-    """带缓存的安全抓取；返回 (result, is_failed)"""
+    """带缓存的安全抓取；失败时用 6h 内旧数据兜底（标注延迟）。返回 (result, is_failed)"""
     cached = get_cache(key)
     if cached:
         return cached, cached.get("status") == "failed"
@@ -248,10 +262,18 @@ def safe_fetch(key, fn, *args, **kwargs):
             set_cache(key, result)
             return result, False
         if result:
+            stale = _stale_fallback(key)
+            if stale:
+                set_cache(key, stale)
+                return stale, False
             set_cache(key, result)
             return result, True
     except Exception:
         traceback.print_exc()
+    stale = _stale_fallback(key)
+    if stale:
+        set_cache(key, stale)
+        return stale, False
     return fail_result(), True
 
 
@@ -295,12 +317,13 @@ def _fetch_tencent():
     news_list = (data.get("idlist", [{}])[0].get("newslist", [])
                  or data.get("data", {}).get("hotRankingList", []))
     items = []
-    for i, item in enumerate(news_list[:20], 1):
+    for item in news_list[:20]:
         title = item.get("title") or item.get("hotTitle", "")
+        if not title or "每10分钟更新" in title:   # 列表头占位条目
+            continue
         url   = item.get("url") or item.get("articleUrl", "https://news.qq.com/")
         hot   = str(item.get("hotScore") or item.get("readCount", ""))
-        if title:
-            items.append({"rank": i, "title": title, "url": url, "hot": hot})
+        items.append({"rank": len(items) + 1, "title": title, "url": url, "hot": hot})
     return make_result(items, True) if items else fail_result("腾讯新闻（无数据）")
 
 def fetch_tencent():
@@ -463,15 +486,24 @@ def fetch_sina():
 
 # ── 人民日报 RSS ─────────────────────────────────────────
 def _fetch_rmrb():
+    # 注：该 RSS 已停更于 2025-06（人民网无更快的公开接口），内容偏旧但链接可直接打开文章页
     resp, err = http_get("http://www.people.com.cn/rss/politics.xml",
                          referer="https://www.people.com.cn/", timeout=15)
     if err:
         return fail_result(f"人民日报（{err}）")
     soup = BeautifulSoup(resp.text, "xml")
-    items = [{"rank": i+1, "title": it.find("title").get_text(strip=True),
-              "url": it.find("link").get_text(strip=True) if it.find("link") else "https://www.people.com.cn/",
-              "hot": ""}
-             for i, it in enumerate(soup.find_all("item")[:20]) if it.find("title")]
+    items = []
+    for i, it in enumerate(soup.find_all("item")[:20]):
+        title_el = it.find("title")
+        if not title_el:
+            continue
+        title = title_el.get_text(strip=True)
+        link_el = it.find("link")
+        link = link_el.get_text(strip=True) if link_el else ""
+        # 链接缺失时兜底到站内搜索该标题，而不是跳首页
+        if not link:
+            link = f"http://search.people.cn/s/?keyword={requests.utils.quote(title)}"
+        items.append({"rank": i + 1, "title": title, "url": link, "hot": ""})
     return make_result(items, False, "RSS·非实时更新") if items else fail_result("人民日报（无数据）")
 
 def fetch_rmrb():
@@ -530,7 +562,9 @@ def _fetch_pengpai():
             title = it.get("name", "") or it.get("title", "")
             cont_id = it.get("contId", "") or it.get("nodeId", "")
             if title:
-                link = it.get("link", "") or (f"https://www.thepaper.cn/newsDetail_detail_{cont_id}" if cont_id else "https://www.thepaper.cn/")
+                # newsDetail_detail_ 已失效（302 回首页），现为 newsDetail_forward_
+                link = it.get("link", "") or (f"https://www.thepaper.cn/newsDetail_forward_{cont_id}" if cont_id
+                                              else f"https://www.thepaper.cn/searchResult?keyword={requests.utils.quote(title)}")
                 praise = it.get("praiseTimes", "")
                 hot = f"{praise}" if praise else ""
                 items.append({"rank": i, "title": title, "url": link, "hot": str(hot)})
@@ -564,8 +598,9 @@ def fetch_pengpai():
 
 # ── 知乎热搜（API + HTML 回退）─────────────────────────────
 def _fetch_zhihu():
-    # 知乎热榜 API
+    # 知乎热榜 API（2026-08 改版：分栏热榜端点为 api.zhihu.com/topstory/hot-lists/total）
     for url in [
+        "https://api.zhihu.com/topstory/hot-lists/total?limit=20",
         "https://www.zhihu.com/api/v4/topstory/hot-lists?limit=20&desktop=true",
         "https://api.zhihu.com/topstory/hot-lists?limit=20",
         "https://www.zhihu.com/api/v3/feed/topstory/hot-lists?limit=20&desktop=true",
@@ -580,7 +615,8 @@ def _fetch_zhihu():
                     target = item.get("target", {}) or item
                     title = target.get("title") or target.get("question", {}).get("title", "")
                     qid = target.get("id", "") or target.get("question", {}).get("id", "")
-                    metric = target.get("vote_count", "") or target.get("follower_count", "") or ""
+                    metric = ((target.get("metrics_area") or {}).get("text")
+                              or target.get("vote_count", "") or target.get("follower_count", "") or "")
                     if str(metric).isdigit() and int(metric) > 1000:
                         metric = f"{int(metric)//10000}万"
                     u = f"https://www.zhihu.com/question/{qid}" if qid else "https://www.zhihu.com/"
@@ -741,11 +777,36 @@ def fetch_douyin():
     return r
 
 
+# ── 贴吧热议（v3 新增）──────────────────────────────────
+def _fetch_tieba():
+    data, err = http_get(
+        "https://tieba.baidu.com/hottopic/browse/topicList",
+        referer="https://tieba.baidu.com/", parse_json=True, timeout=12
+    )
+    if err:
+        return fail_result(f"贴吧（{err}）")
+    raw = (data.get("data", {}) or {}).get("bang_topic", {}).get("topic_list", []) or []
+    items = []
+    for i, it in enumerate(raw[:20], 1):
+        title = it.get("topic_name", "")
+        if not title:
+            continue
+        url = it.get("topic_url") or f"https://tieba.baidu.com/hottopic/browse/hottopic?topic_id={it.get('topic_id', '')}"
+        d = int(it.get("discuss_num") or 0)
+        items.append({"rank": i, "title": title, "url": url,
+                      "hot": f"{d//10000}万讨论" if d else ""})
+    return make_result(items, True, "热议话题") if items else fail_result("贴吧（无数据）")
+
+def fetch_tieba():
+    r, _ = safe_fetch("tieba", _fetch_tieba)
+    return r
+
+
 # ══════════════════════════════════════════════════════════════
 # 【科技数码】
 # ══════════════════════════════════════════════════════════════
 
-def _rss(url, ref="", note="RSS·非实时更新"):
+def _rss(url, ref="", note="RSS·非实时更新", timeout=15):
     """RSS 抓取，支持 HTTP/HTTPS 双协议 + 多编码容错"""
     urls_to_try = [url]
     if url.startswith("https://"):
@@ -753,7 +814,7 @@ def _rss(url, ref="", note="RSS·非实时更新"):
     elif url.startswith("http://"):
         urls_to_try.append(url.replace("http://", "https://", 1))
     for attempt_url in urls_to_try:
-        content, err = http_get(attempt_url, referer=ref, raw_bytes=True, timeout=15)
+        content, err = http_get(attempt_url, referer=ref, raw_bytes=True, timeout=timeout)
         if err:
             continue
         for enc in ["utf-8", "gb2312", "gbk", "gb18030", "utf-16"]:
@@ -813,8 +874,9 @@ def _html_list(url, ref, selectors, note="实时资讯", limit=20,
         return make_result(items[:limit], realtime, note)
     return fail_result(f"{note}（暂不可用）")
 
-def fetch_36kr():
-    # gateway API 已全面 500，改用 RSS feed（实测稳定）+ 首页 HTML 兜底
+def _fetch_36kr():
+    # gateway API 已全面 500，改用 RSS feed + 首页 HTML 兜底
+    # （注：36kr 的 Cloudflare 防护在部分网络下会拦 RSS，失败时走兜底/延迟保底）
     r = _rss("https://36kr.com/feed", "https://36kr.com/", "RSS·资讯")
     if r and r.get("items"):
         return r
@@ -841,9 +903,31 @@ def fetch_36kr():
             return make_result(items, True, "实时资讯")
     return fail_result("36氪（暂不可用）")
 
-def fetch_huxiu():
-    # 虎嗅启用阿里云 WAF 拦截（JS challenge），所有 UA/蜘蛛均被拦，无法可靠抓取。
-    # 改抓同类的雷锋网（科技商业资讯），保证该槽位有真实内容。
+def fetch_36kr():
+    r, _ = safe_fetch("36kr", _fetch_36kr)
+    return r
+
+def _fetch_huxiu():
+    # 虎嗅 RSS（部分网络可通过 WAF；挂起时 6s 硬超时快速失败，不走全局重试 session）
+    # → 雷锋网 RSS → 雷锋网 HTML → 虎嗅首页兜底
+    import requests as _rq
+    try:
+        resp = _rq.get("https://www.huxiu.com/rss/0.xml",
+                       headers={"User-Agent": _random_ua(), "Accept": "*/*"}, timeout=6)
+        if resp.ok:
+            soup = BeautifulSoup(resp.text, "xml")
+            items = [{"rank": i + 1, "title": it.find("title").get_text(strip=True),
+                      "url": it.find("link").get_text(strip=True) if it.find("link") else "https://www.huxiu.com/",
+                      "hot": ""}
+                     for i, it in enumerate(soup.find_all("item")[:20]) if it.find("title")]
+            if items:
+                return make_result(items, False, "RSS·虎嗅")
+    except Exception:
+        pass
+    r = _rss("https://www.leiphone.com/feed", "https://www.leiphone.com/", "RSS·雷锋网", timeout=12)
+    if r and r.get("items"):
+        return r
+
     r = _html_list(
         "https://www.leiphone.com/", "https://www.leiphone.com/",
         selectors=["a[href*='leiphone.com/']", "h3 a", ".article-title a", "h2 a"],
@@ -872,6 +956,46 @@ def fetch_huxiu():
         if len(items) >= 5:
             return make_result(items[:20], True, "实时资讯")
     return fail_result("虎嗅（暂不可用）")
+
+def fetch_huxiu():
+    r, _ = safe_fetch("huxiu", _fetch_huxiu)
+    return r
+
+# ── 掘金热榜（v3 新增）──────────────────────────────────
+def _fetch_juejin():
+    data, err = http_get(
+        "https://api.juejin.cn/content_api/v1/content/article_rank?category_id=1&type=hot",
+        referer="https://juejin.cn/", parse_json=True, timeout=12
+    )
+    if err:
+        return fail_result(f"掘金（{err}）")
+    items = []
+    for i, it in enumerate((data.get("data") or [])[:20], 1):
+        c = it.get("content", {}) or {}
+        title = c.get("title", "")
+        if not title:
+            continue
+        hot = (it.get("content_counter") or {}).get("hot_rank") or ""
+        items.append({"rank": i, "title": title,
+                      "url": f"https://juejin.cn/post/{c['content_id']}" if c.get("content_id") else "https://juejin.cn/",
+                      "hot": str(hot)})
+    return make_result(items, True, "热榜") if items else fail_result("掘金（无数据）")
+
+def fetch_juejin():
+    r, _ = safe_fetch("juejin", _fetch_juejin)
+    return r
+
+# ── 开源中国（v3 新增，RSS）──────────────────────────────
+def fetch_oschina():
+    r, _ = safe_fetch("oschina", _rss,
+                      "https://www.oschina.net/news/rss", "https://www.oschina.net/", "RSS·开源资讯")
+    return r
+
+# ── 钛媒体（v3 新增，RSS）────────────────────────────────
+def fetch_tmtpost():
+    r, _ = safe_fetch("tmtpost", _rss,
+                      "https://www.tmtpost.com/feed", "https://www.tmtpost.com/", "RSS·钛媒体")
+    return r
 
 def fetch_ifanr():
     r, _ = safe_fetch("ifanr", _rss, "https://www.ifanr.com/feed", "https://www.ifanr.com/")
@@ -1281,6 +1405,9 @@ def fetch_cankaoxiaoxi():
 # ══════════════════════════════════════════════════════════════
 
 # ── 虎扑（多端点回退）──────────────────────────────────────
+import re as _re_mod
+_HUPU_NOISE = _re_mod.compile(r"(下载|打开|安装).{0,6}(App|APP|客户端)|虎扑APP")
+
 def _fetch_hupu():
     for url in ["https://bbs.hupu.com/all", "https://www.hupu.com/"]:
         resp, err = http_get(url, referer="https://www.hupu.com/", timeout=15)
@@ -1294,9 +1421,9 @@ def _fetch_hupu():
                 ".floor-content-title a", "a[href*='bbs.hupu.com']",
                 ".topic-title a", ".trending-title a",
             ]:
-                if len(items) >= 20:
+                if len(items) >= 40:
                     break
-                for a in soup.select(sel)[:40]:
+                for a in soup.select(sel)[:60]:
                     title = a.get_text(strip=True)
                     href  = a.get("href", "")
                     if (title and len(title) > 6 and title not in seen
@@ -1305,8 +1432,11 @@ def _fetch_hupu():
                         if not href.startswith("http"):
                             href = "https://bbs.hupu.com" + href
                         items.append({"rank": len(items)+1, "title": title, "url": href, "hot": ""})
+            items = [it for it in items if not _HUPU_NOISE.search(it["title"])][:20]
+            for i, it in enumerate(items, 1):
+                it["rank"] = i
             if len(items) >= 5:
-                return make_result(items[:20], True, "实时热帖")
+                return make_result(items, True, "实时热帖")
 
     # NBA 热帖
     resp, err = http_get("https://bbs.hupu.com/nba", referer="https://bbs.hupu.com/", timeout=15)
@@ -1431,6 +1561,7 @@ FETCHERS = {
     "toutiao":     fetch_toutiao,
     "baidu":       fetch_baidu,
     "douyin":      fetch_douyin,
+    "tieba":       fetch_tieba,
     "wangyi":      fetch_wangyi,
     "sina":        fetch_sina,
     "rmrb":        fetch_rmrb,
@@ -1441,6 +1572,9 @@ FETCHERS = {
     "bilibili":    fetch_bilibili,
     "36kr":        fetch_36kr,
     "huxiu":       fetch_huxiu,
+    "juejin":      fetch_juejin,
+    "oschina":     fetch_oschina,
+    "tmtpost":     fetch_tmtpost,
     "ifanr":       fetch_ifanr,
     "sspai":       fetch_sspai,
     "ithome":      fetch_ithome,
@@ -1464,8 +1598,8 @@ FETCHERS = {
 }
 
 CATEGORIES = {
-    "综合":    ["weibo","tencent","baidu","douyin","toutiao","wangyi","sina","pengpai","zhihu","bilibili","rmrb","cctv","xinhua"],
-    "科技":    ["36kr","huxiu","ifanr","sspai","ithome","github"],
+    "综合":    ["weibo","tencent","baidu","douyin","tieba","toutiao","wangyi","sina","pengpai","zhihu","bilibili","rmrb","cctv","xinhua"],
+    "科技":    ["36kr","huxiu","juejin","oschina","tmtpost","ifanr","sspai","ithome","github"],
     "娱乐":    ["douban","maoyan","weibo_ent","sina_ent","ifeng_ent"],
     "财经":    ["caixin","yicai","jiemian","wallstreet","xueqiu"],
     "军事国际": ["guancha","huanqiu","cankaoxiaoxi"],
@@ -1474,12 +1608,13 @@ CATEGORIES = {
 
 PLATFORM_NAMES = {
     "weibo": "微博热搜", "tencent": "腾讯新闻", "toutiao": "今日头条",
-    "baidu": "百度热搜", "douyin": "抖音热搜", "wangyi": "网易新闻",
-    "sina": "新浪新闻", "rmrb": "人民日报", "cctv": "央视新闻",
-    "xinhua": "新华社", "pengpai": "澎湃新闻", "zhihu": "知乎热搜",
-    "bilibili": "B站排行", "36kr": "36氪", "huxiu": "虎嗅·雷锋网",
-    "ifanr": "爱范儿", "sspai": "少数派", "ithome": "IT之家",
-    "github": "GitHub趋势", "douban": "豆瓣电影",
+    "baidu": "百度热搜", "douyin": "抖音热搜", "tieba": "贴吧热议",
+    "wangyi": "网易新闻", "sina": "新浪新闻", "rmrb": "人民日报",
+    "cctv": "央视新闻", "xinhua": "新华社", "pengpai": "澎湃新闻",
+    "zhihu": "知乎热搜", "bilibili": "B站排行", "36kr": "36氪",
+    "huxiu": "虎嗅·雷锋网", "juejin": "掘金热榜", "oschina": "开源中国",
+    "tmtpost": "钛媒体", "ifanr": "爱范儿", "sspai": "少数派",
+    "ithome": "IT之家", "github": "GitHub趋势", "douban": "豆瓣电影",
     "maoyan": "猫眼电影", "weibo_ent": "微博娱乐", "sina_ent": "新浪娱乐",
     "ifeng_ent": "凤凰娱乐", "caixin": "财新", "yicai": "第一财经",
     "jiemian": "界面新闻", "wallstreet": "华尔街见闻", "xueqiu": "东方财富",
@@ -1494,6 +1629,7 @@ RAW_FETCHERS = {
     "toutiao":     _fetch_toutiao,
     "baidu":       _fetch_baidu,
     "douyin":      _fetch_douyin,
+    "tieba":       _fetch_tieba,
     "wangyi":      _fetch_wangyi,
     "sina":        _fetch_sina,
     "rmrb":        _fetch_rmrb,
@@ -1502,11 +1638,14 @@ RAW_FETCHERS = {
     "pengpai":     _fetch_pengpai,
     "zhihu":       _fetch_zhihu,
     "bilibili":    _fetch_bilibili,
-    "36kr":        fetch_36kr,
-    "huxiu":       fetch_huxiu,
-    "ifanr":       fetch_ifanr,
-    "sspai":       fetch_sspai,
-    "ithome":      fetch_ithome,
+    "36kr":        _fetch_36kr,
+    "huxiu":       _fetch_huxiu,
+    "juejin":      _fetch_juejin,
+    "oschina":     lambda: _rss("https://www.oschina.net/news/rss", "https://www.oschina.net/", "RSS·开源资讯"),
+    "tmtpost":     lambda: _rss("https://www.tmtpost.com/feed", "https://www.tmtpost.com/", "RSS·钛媒体"),
+    "ifanr":       lambda: _rss("https://www.ifanr.com/feed", "https://www.ifanr.com/"),
+    "sspai":       lambda: _rss("https://sspai.com/feed", "https://sspai.com/"),
+    "ithome":      lambda: _rss("https://www.ithome.com/rss/", "https://www.ithome.com/"),
     "github":      _fetch_github,
     "douban":      _fetch_douban,
     "maoyan":      _fetch_maoyan,
